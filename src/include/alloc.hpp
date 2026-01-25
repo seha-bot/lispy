@@ -13,8 +13,8 @@
 struct Alloc {
     Alloc(GC& gc) : m_gc(gc) {
         atom("NIL")->lock();
-        atom("t")->lock();
-        atom("f")->lock();
+        atom("T")->lock();
+        atom("F")->lock();
     }
 
     ast::ExprAtom *atom(std::string value) {

@@ -39,7 +39,7 @@ Parser<ast::Expr *> s_expr(Alloc& alloc) {
                                                                    acc = alloc.cons(*it, acc);
                                                                }
                                                                return acc;
-                                                           }) < char_(')'))
+                                                           }) < ws() < char_(')'))
                       .map([&alloc](std::tuple<std::optional<char>, ast::Expr *> x) -> ast::Expr * {
                           if (std::get<0>(x)) {
                               return alloc.cons(alloc.atom("QUOTE"), alloc.cons(std::get<1>(x), alloc.nil()));
