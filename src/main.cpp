@@ -1,16 +1,24 @@
 #include <cctype>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
+
+extern "C" {
+#include <readline/history.h>
+#include <readline/readline.h>
+}
 
 #define FWD(...) std::forward<decltype(__VA_ARGS__)>(__VA_ARGS__)
 
@@ -22,7 +30,7 @@ struct overload : Ts... {
 struct Expr {
     using Env = std::unordered_map<std::string_view, Expr *>;
     virtual ~Expr() = default;
-    virtual void print(bool = true) const = 0;
+    virtual std::string format(bool = true) const = 0;
     virtual Expr *eval(Env& env) const = 0;
 };
 
@@ -30,25 +38,26 @@ struct ExprAtom : Expr {
     std::string value;
     ExprAtom(std::string value) : value(std::move(value)) {}
 
-    void print(bool) const override { std::cout << value; }
+    std::string format(bool) const override { return value; }
     Expr *eval(Env& env) const override { return env.at(value); }
 };
 struct ExprCons : Expr {
     Expr *car, *cdr;
     ExprCons(Expr *car, Expr *cdr) : car(car), cdr(cdr) {}
 
-    void print(bool parens) const override {
+    std::string format(bool parens = true) const override {
+        std::string r;
         if (parens) {
-            std::cout << '(';
+            r += '(';
         }
-        car->print(true);
-        if (auto *r = dynamic_cast<ExprAtom *>(cdr); not r or r->value != "NIL") {
-            std::cout << ' ';
-            cdr->print(false);
+        r += car->format(true);
+        if (auto *e = dynamic_cast<ExprAtom *>(cdr); not e or e->value != "NIL") {
+            r += ' ' + cdr->format(false);
         }
         if (parens) {
-            std::cout << ')';
+            r += ')';
         }
+        return r;
     }
     Expr *eval(Env& env) const override;
 };
@@ -127,7 +136,7 @@ Expr *ExprCons::eval(Env& env) const {
             auto xs = car_(cdr_(cdr))->eval(env);
             return mem.alloc_cons(x, xs);
         } else {
-            auto v = env[a->value];
+            auto v = env.at(a->value);
             auto evlis = [&env](Expr *e) {
                 std::vector<Expr *> vec;
                 while (e != mem.nil()) {
@@ -143,7 +152,7 @@ Expr *ExprCons::eval(Env& env) const {
             return mem.alloc_cons(v, evlis(cdr))->eval(env);
         }
     }
-    throw std::runtime_error("unimplemented");
+    throw std::runtime_error("unimplemented for " + format());
 }
 
 template <typename T>
@@ -195,9 +204,9 @@ struct Parser {
         }};
     }
 
-    // Parser empty() const {
-    //     return Parser{[](std::string_view) { return std::nullopt; }};
-    // }
+    static Parser fail(std::string what) {
+        return Parser{[what = std::move(what)](std::string_view, Pos p) { return Err{what, p}; }};
+    }
 
     Parser operator||(Parser alt) const {
         return Parser{[run = run, alt = std::move(alt)](std::string_view s, Pos p) {
@@ -262,6 +271,18 @@ auto pure(T value) {
     return P{[value = value](std::string_view s, Pos pos) -> R { return Ok{value, s, pos}; }};
 }
 
+template <typename T>
+Parser<std::tuple<T>> sequence(Parser<T> x) {
+    return x.map([](T y) { return std::make_tuple(y); });
+}
+
+template <typename T, typename... Ts>
+Parser<std::tuple<T, Ts...>> sequence(Parser<T> x, Parser<Ts>... xs) {
+    return x + [=](T y) {
+        return sequence(xs...).map([=](std::tuple<Ts...> ys) { return std::tuple_cat(std::make_tuple(y), ys); });
+    };
+}
+
 Parser<char> satisfy(std::function<bool(char)> f) {
     using P = Parser<char>;
     return P{[f](std::string_view s, Pos pos) -> P::Result {
@@ -273,12 +294,12 @@ Parser<char> satisfy(std::function<bool(char)> f) {
             }
             return P::Ok{s[0], s.substr(1), pos};
         }
-        return Err{"", pos};
+        return Err{"unsatisified predicate", pos};
     }};
 }
 
 Parser<char> char_(char c) {
-    return satisfy([c](char x) { return x == c; });
+    return satisfy([c](char x) { return x == c; }) or Parser<char>::fail(std::string("expected '") + c + "'");
 }
 
 Parser<int> ws() {
@@ -286,7 +307,7 @@ Parser<int> ws() {
 }
 
 Parser<char> atom_part() {
-    return satisfy([](char c) { return not std::isspace(c) and c != '(' and c != ')'; });
+    return satisfy([](char c) { return not std::isspace(c) and c != '(' and c != ')' and c != '\''; });
 }
 
 Parser<Expr *> atom() {
@@ -299,37 +320,57 @@ Parser<T> recurse(Parser<T> (*f)()) {
     return pure(0) + [f](int) { return f(); };
 }
 
+Parser<std::optional<char>> maybe_quote() {
+    return char_('\'').map([](char c) { return std::make_optional(c); }) or pure(std::optional<char>());
+}
+
 Parser<Expr *> s_expr() {
-    return ws() > (atom() or char_('(') > recurse(s_expr).many().map([](std::vector<Expr *> const& v) {
+    return ws() >
+           sequence(maybe_quote(), atom() or char_('(') > recurse(s_expr).many().map([](std::vector<Expr *> const& v) {
                Expr *acc = mem.nil();
                for (auto it = v.rbegin(); it != v.rend(); ++it) {
                    acc = mem.alloc_cons(*it, acc);
                }
                return acc;
-           }) < char_(')'));
+           }) < char_(')'))
+               .map([](std::tuple<std::optional<char>, Expr *> x) -> Expr * {
+                   if (std::get<0>(x)) {
+                       return mem.alloc_cons(mem.alloc_atom("QUOTE"), mem.alloc_cons(std::get<1>(x), mem.nil()));
+                   } else {
+                       return std::get<1>(x);
+                   }
+               });
 }
 
-int main() {
-    // std::string_view prog = "(EQ (QUOTE hello) (QUOTE hi))";
-    std::string_view prog = "(EQ (QUOTE hello) (QUOTE hello))";
+struct FreeDeleter {
+    static void operator()(void *ptr) { std::free(ptr); }
+};
 
+int main() {
     auto p = s_expr();
-    std::visit(
-        overload{
-            [](Parser<Expr *>::Ok r) {
-                if (not r.rest.empty()) {
-                    std::cout << "[Warning] trailing_characters: \"" << r.rest << "\"\n";
-                }
-                std::cout << "Program: ";
-                r.value->print();
-                std::cout << '\n';
-                Expr::Env e;
-                auto o = r.value->eval(e);
-                std::cout << "Evaluated: ";
-                o->print();
-                std::cout << '\n';
-            },
-            [](Err e) { std::cout << "Error at " << e.where.line << ", " << e.where.col << ": " << e.what << '\n'; },
-        },
-        p.run(prog, Pos{1, 1}));
+    Expr::Env e;
+
+    using_history();
+
+    while (auto input = std::unique_ptr<char, FreeDeleter>(readline("> "))) {
+        add_history(input.get());
+
+        std::visit(overload{
+                       [&](Parser<Expr *>::Ok r) {
+                           if (not r.rest.empty()) {
+                               std::cout << "[Warning] trailing_characters: \"" << r.rest << "\"\n";
+                           }
+                           std::cout << "[Debug] prog: " << r.value->format() << '\n';
+                           try {
+                               std::cout << r.value->eval(e)->format() << '\n';
+                           } catch (std::exception const& err) {
+                               std::cout << "Runtime error: " << err.what() << '\n';
+                           }
+                       },
+                       [](Err e) {
+                           std::cout << "Error at " << e.where.line << ", " << e.where.col << ": " << e.what << '\n';
+                       },
+                   },
+                   p.run(input.get(), Pos{1, 1}));
+    }
 }
