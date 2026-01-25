@@ -41,10 +41,10 @@ int main() {
             }
             gc.collect();
 
-            std::cout << "GC nodes: " << gc.debug() << '\n';
+            std::cout << "[Debug] GC nodes: " << gc.debug() << '\n';
         } else {
             auto [what, where] = r.error();
-            std::cout << "Error at " << where.line << ", " << where.col << ": " << what << '\n';
+            std::cout << "[Error] at " << where.line << ", " << where.col << ": " << what << '\n';
         }
     }
 }
