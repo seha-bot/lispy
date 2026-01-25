@@ -12,8 +12,8 @@ struct overload : Ts... {
     using Ts::operator()...;
 };
 
+#include "alloc.hpp"
 #include "eval.hpp"
-#include "gc.hpp"
 #include "lisp_parser.hpp"
 
 extern "C" {
@@ -27,7 +27,8 @@ struct FreeDeleter {
 
 int main() {
     GC gc;
-    auto p = parse::s_expr(gc);
+    Alloc alloc(gc);
+    auto p = parse::s_expr(alloc);
     Env env;
 
     using_history();
@@ -42,10 +43,13 @@ int main() {
                            }
                            std::cout << "[Debug] prog: " << r.value->format() << '\n';
                            try {
-                               std::cout << eval(r.value, env, gc)->format() << '\n';
+                               std::cout << eval(r.value, env, alloc)->format() << '\n';
                            } catch (std::exception const& err) {
                                std::cout << "Runtime error: " << err.what() << '\n';
                            }
+                           gc.collect();
+
+                           std::cout << "GC nodes: " << gc.debug() << '\n';
                        },
                        [](parse::Err e) {
                            std::cout << "Error at " << e.where.line << ", " << e.where.col << ": " << e.what << '\n';
