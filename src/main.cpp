@@ -1,10 +1,13 @@
 #include <cctype>
+#include <cstddef>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -16,52 +19,132 @@ struct overload : Ts... {
     using Ts::operator()...;
 };
 
-// 1. atom
-// 2. eq
-// 3. car
-// 4. cdr
-// 5. cons
-// 6. cond
-// 7. quote
-
 struct Expr {
-    // std::unique_ptr<Expr> lol;
+    using Env = std::unordered_map<std::string_view, Expr *>;
     virtual ~Expr() = default;
-
-    virtual void print() const = 0;
+    virtual void print(bool = true) const = 0;
+    virtual Expr *eval(Env& env) const = 0;
 };
 
 struct ExprAtom : Expr {
-    ExprAtom(std::string value) : value(std::move(value)) {}
     std::string value;
+    ExprAtom(std::string value) : value(std::move(value)) {}
 
-    virtual void print() const {
-        std::cout << value;
-    }
+    void print(bool) const override { std::cout << value; }
+    Expr *eval(Env& env) const override { return env.at(value); }
 };
-struct ExprEq : Expr {};
-struct ExprCar : Expr {};
-struct ExprCdr : Expr {};
 struct ExprCons : Expr {
-    ExprCons(std::shared_ptr<Expr> car, std::shared_ptr<Expr> cdr) : car(car), cdr(cdr) {}
-    std::shared_ptr<Expr> car, cdr;
+    Expr *car, *cdr;
+    ExprCons(Expr *car, Expr *cdr) : car(car), cdr(cdr) {}
 
-    virtual void print() const {
-        if (dynamic_cast<ExprAtom*>(car.get())) {
-            car->print();
-        } else {
+    void print(bool parens) const override {
+        if (parens) {
             std::cout << '(';
-            car->print();
+        }
+        car->print(true);
+        if (auto *r = dynamic_cast<ExprAtom *>(cdr); not r or r->value != "NIL") {
+            std::cout << ' ';
+            cdr->print(false);
+        }
+        if (parens) {
             std::cout << ')';
         }
-        std::cout << ' ';
-        cdr->print();
+    }
+    Expr *eval(Env& env) const override;
+};
+
+template <>
+struct std::hash<ExprAtom> {
+    std::size_t operator()(const ExprAtom& e) const noexcept { return std::hash<std::string_view>()(e.value); }
+};
+
+template <>
+struct std::hash<ExprCons> {
+    std::size_t operator()(const ExprCons& e) const noexcept {
+        return std::hash<Expr *>()(e.car) ^ std::hash<Expr *>()(e.cdr);
     }
 };
-struct ExprCond : Expr {};
-struct ExprQuote : Expr {};
 
-std::shared_ptr<Expr> nil() { return std::make_shared<ExprAtom>("NIL"); }
+Expr *car_(Expr *e) { return dynamic_cast<ExprCons&>(*e).car; }
+Expr *cdr_(Expr *e) { return dynamic_cast<ExprCons&>(*e).cdr; }
+bool is_atom(Expr *e) { return dynamic_cast<ExprAtom *>(e) != nullptr; }
+
+struct Memory {
+    std::vector<ExprAtom *> atom_storage{new ExprAtom("NIL"), new ExprAtom("t"), new ExprAtom("f")};
+    std::vector<ExprCons *> cons_storage;
+    ExprAtom *alloc_atom(std::string value) {
+        for (auto x : atom_storage) {
+            if (x->value == value) {
+                return x;
+            }
+        }
+        return atom_storage.emplace_back(new ExprAtom(std::move(value)));
+    }
+    ExprCons *alloc_cons(Expr *a, Expr *b) { return cons_storage.emplace_back(new ExprCons(a, b)); }
+    ExprAtom *nil() { return atom_storage[0]; }
+    ExprAtom *true_() { return atom_storage[1]; }
+    ExprAtom *false_() { return atom_storage[2]; }
+    ExprAtom *check(bool b) { return b ? true_() : false_(); }
+
+    // void mark_for_destruction(Expr *expr);
+    // void sweep();
+
+    ~Memory() {
+        for (auto x : atom_storage) delete x;
+        for (auto x : cons_storage) delete x;
+    }
+};
+
+Memory mem;
+
+Expr *ExprCons::eval(Env& env) const {
+    if (auto *a = dynamic_cast<ExprAtom *>(car)) {
+        if (a->value == "QUOTE") {
+            return car_(cdr);
+        } else if (a->value == "ATOM") {
+            auto expr = car_(cdr)->eval(env);
+            return mem.check(is_atom(expr));
+        } else if (a->value == "EQ") {
+            auto x = car_(cdr)->eval(env);
+            auto y = car_(cdr_(cdr))->eval(env);
+            return mem.check(x == y);
+        } else if (a->value == "COND") {
+            auto branches = cdr;
+            while (true) {
+                auto p = car_(car_(branches))->eval(env);
+                if (p == mem.true_()) {
+                    return car_(cdr_(car_(branches)))->eval(env);
+                } else {
+                    branches = cdr_(branches);
+                }
+            }
+        } else if (a->value == "CAR") {
+            return car_(car_(cdr)->eval(env));
+        } else if (a->value == "CDR") {
+            return cdr_(car_(cdr)->eval(env));
+        } else if (a->value == "CONS") {
+            auto x = car_(cdr)->eval(env);
+            auto xs = car_(cdr_(cdr))->eval(env);
+            return mem.alloc_cons(x, xs);
+        } else {
+            auto v = env[a->value];
+            auto evlis = [&env](Expr *e) {
+                std::vector<Expr *> vec;
+                while (e != mem.nil()) {
+                    vec.push_back(car_(e)->eval(env));
+                    e = cdr_(e);
+                }
+                Expr *ret = mem.nil();
+                for (auto it = vec.rbegin(); it != vec.rend(); ++it) {
+                    ret = mem.alloc_cons(*it, ret);
+                }
+                return ret;
+            };
+            return mem.alloc_cons(v, evlis(cdr))->eval(env);
+        }
+    }
+    throw std::runtime_error("unimplemented");
+}
 
 template <typename T>
 struct Parser;
@@ -206,8 +289,9 @@ Parser<char> atom_part() {
     return satisfy([](char c) { return not std::isspace(c) and c != '(' and c != ')'; });
 }
 
-Parser<ExprAtom> atom() {
-    return atom_part().some().map([](std::vector<char> const& v) { return ExprAtom{std::string(v.begin(), v.end())}; });
+Parser<Expr *> atom() {
+    return atom_part().some().map(
+        [](std::vector<char> const& v) -> Expr * { return mem.alloc_atom(std::string(v.begin(), v.end())); });
 }
 
 template <typename T>
@@ -215,32 +299,37 @@ Parser<T> recurse(Parser<T> (*f)()) {
     return pure(0) + [f](int) { return f(); };
 }
 
-auto atom_to_expr = [](ExprAtom x) -> std::shared_ptr<Expr> { return std::make_shared<ExprAtom>(x); };
-
-Parser<std::shared_ptr<Expr>> s_expr() {
-    return ws() > (atom().map(atom_to_expr) or char_('(') > recurse(s_expr) < char_(')'))
-                      .many()
-                      .map([](std::vector<std::shared_ptr<Expr>> const& v) {
-                          std::shared_ptr<Expr> acc = nil();
-                          for (int i = static_cast<int>(v.size()) - 1; i >= 0; --i) {
-                              acc = std::make_shared<ExprCons>(v[i], acc);
-                          }
-                          return acc;
-                      });
+Parser<Expr *> s_expr() {
+    return ws() > (atom() or char_('(') > recurse(s_expr).many().map([](std::vector<Expr *> const& v) {
+               Expr *acc = mem.nil();
+               for (auto it = v.rbegin(); it != v.rend(); ++it) {
+                   acc = mem.alloc_cons(*it, acc);
+               }
+               return acc;
+           }) < char_(')'));
 }
 
 int main() {
+    // std::string_view prog = "(EQ (QUOTE hello) (QUOTE hi))";
+    std::string_view prog = "(EQ (QUOTE hello) (QUOTE hello))";
+
     auto p = s_expr();
     std::visit(
         overload{
-            [](Parser<std::shared_ptr<Expr>>::Ok r) {
+            [](Parser<Expr *>::Ok r) {
+                if (not r.rest.empty()) {
+                    std::cout << "[Warning] trailing_characters: \"" << r.rest << "\"\n";
+                }
+                std::cout << "Program: ";
                 r.value->print();
+                std::cout << '\n';
+                Expr::Env e;
+                auto o = r.value->eval(e);
+                std::cout << "Evaluated: ";
+                o->print();
                 std::cout << '\n';
             },
             [](Err e) { std::cout << "Error at " << e.where.line << ", " << e.where.col << ": " << e.what << '\n'; },
         },
-        p.run("a", Pos{1, 1}));
-        // p.run("((a)b)", Pos{1, 1}));
-    // p.run("hi(hello)sup((wow)zoo)", Pos{1, 1}));
-    // p.run("hi(hello)hi(sup(zoo))", Pos{1, 1}));
+        p.run(prog, Pos{1, 1}));
 }
