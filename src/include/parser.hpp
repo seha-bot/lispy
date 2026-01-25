@@ -1,19 +1,16 @@
 #ifndef PARSER_HPP
 #define PARSER_HPP
 
+#include <expected>
 #include <functional>
 #include <string>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace parse {
-
-template <typename T>
-struct Parser;
 
 template <typename T>
 auto pure(T value);
@@ -33,12 +30,12 @@ struct Parser {
         std::string_view rest;
         Pos where;
     };
-    using Result = std::variant<Ok, Err>;
+    using Result = std::expected<Ok, Err>;
 
     std::function<Result(std::string_view, Pos)> run;
 
-    auto map(auto&& f) {
-        return *this + [f](T x) { return pure(f(x)); };
+    auto map(auto f) {
+        return *this + [f = std::move(f)](T x) { return pure(f(x)); };
     }
 
     template <typename U = T>
@@ -54,21 +51,23 @@ struct Parser {
     auto operator+(auto&& f) const {
         using P = std::remove_reference_t<decltype(f(std::declval<T>()))>;
         using R = typename P::Result;
-        return P{[run = run, f = FWD(f)](std::string_view s, Pos p) {
-            return std::visit(
-                overload{[&f](Ok r) { return R(f(r.value).run(r.rest, r.where)); }, [](Err e) { return R(e); }},
-                run(s, p));
+        return P{[run = run, f = std::move(f)](std::string_view s, Pos p) -> R {
+            if (auto r = run(s, p)) {
+                return f(r->value).run(r->rest, r->where);
+            } else {
+                return std::unexpected(r.error());
+            }
         }};
     }
 
     static Parser fail(std::string what) {
-        return Parser{[what = std::move(what)](std::string_view, Pos p) { return Err{what, p}; }};
+        return Parser{[what = std::move(what)](std::string_view, Pos p) { return std::unexpected(Err{what, p}); }};
     }
 
     Parser operator||(Parser alt) const {
         return Parser{[run = run, alt = std::move(alt)](std::string_view s, Pos p) {
             auto r = run(s, p);
-            if (std::holds_alternative<Err>(r)) {
+            if (!r) {
                 return alt.run(s, p);
             }
             return r;
@@ -77,43 +76,39 @@ struct Parser {
 
     Parser<std::vector<T>> some() {
         using R = typename Parser<std::vector<T>>::Result;
-        using ROk = typename Parser<std::vector<T>>::Ok;
         return Parser<std::vector<T>>{[run = std::move(run)](std::string_view s, Pos p) -> R {
             std::vector<T> v;
             while (true) {
                 auto r = run(s, p);
-                if (auto *e = std::get_if<Err>(&r)) {
+                if (!r) {
                     if (v.empty()) {
-                        return *e;
+                        return std::unexpected(r.error());
                     } else {
                         break;
                     }
                 }
-                auto ok = std::get<Ok>(r);
-                v.push_back(ok.value);
-                s = ok.rest;
-                p = ok.where;
+                v.push_back(r->value);
+                s = r->rest;
+                p = r->where;
             }
-            return ROk{v, s, p};
+            return R({v, s, p});
         }};
     }
 
     Parser<std::vector<T>> many() {
         using R = typename Parser<std::vector<T>>::Result;
-        using ROk = typename Parser<std::vector<T>>::Ok;
         return Parser<std::vector<T>>{[run = std::move(run)](std::string_view s, Pos p) -> R {
             std::vector<T> v;
             while (true) {
                 auto r = run(s, p);
-                if (auto *e = std::get_if<Err>(&r)) {
+                if (!r) {
                     break;
                 }
-                auto ok = std::get<Ok>(r);
-                v.push_back(ok.value);
-                s = ok.rest;
-                p = ok.where;
+                v.push_back(r->value);
+                s = r->rest;
+                p = r->where;
             }
-            return ROk{v, s, p};
+            return R({v, s, p});
         }};
     }
 };
@@ -151,7 +146,7 @@ Parser<char> satisfy(std::function<bool(char)> f) {
             }
             return P::Ok{s[0], s.substr(1), pos};
         }
-        return Err{"unsatisified predicate", pos};
+        return std::unexpected(Err{"unsatisified predicate", pos});
     }};
 }
 

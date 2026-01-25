@@ -5,13 +5,6 @@
 #include <stdexcept>
 #include <utility>
 
-#define FWD(...) std::forward<decltype(__VA_ARGS__)>(__VA_ARGS__)
-
-template <typename... Ts>
-struct overload : Ts... {
-    using Ts::operator()...;
-};
-
 #include "alloc.hpp"
 #include "eval.hpp"
 #include "lisp_parser.hpp"
@@ -36,25 +29,22 @@ int main() {
     while (auto input = std::unique_ptr<char, FreeDeleter>(readline("> "))) {
         add_history(input.get());
 
-        std::visit(overload{
-                       [&](parse::Parser<ast::Expr *>::Ok r) {
-                           if (not r.rest.empty()) {
-                               std::cout << "[Warning] trailing_characters: \"" << r.rest << "\"\n";
-                           }
-                           std::cout << "[Debug] prog: " << r.value->format() << '\n';
-                           try {
-                               std::cout << eval(r.value, env, alloc)->format() << '\n';
-                           } catch (std::exception const& err) {
-                               std::cout << "Runtime error: " << err.what() << '\n';
-                           }
-                           gc.collect();
+        if (auto r = p.run(input.get(), parse::Pos{1, 1})) {
+            if (not r->rest.empty()) {
+                std::cout << "[Warning] trailing_characters: \"" << r->rest << "\"\n";
+            }
+            std::cout << "[Debug] prog: " << r->value->format() << '\n';
+            try {
+                std::cout << eval(r->value, env, alloc)->format() << '\n';
+            } catch (std::exception const& err) {
+                std::cout << "Runtime error: " << err.what() << '\n';
+            }
+            gc.collect();
 
-                           std::cout << "GC nodes: " << gc.debug() << '\n';
-                       },
-                       [](parse::Err e) {
-                           std::cout << "Error at " << e.where.line << ", " << e.where.col << ": " << e.what << '\n';
-                       },
-                   },
-                   p.run(input.get(), parse::Pos{1, 1}));
+            std::cout << "GC nodes: " << gc.debug() << '\n';
+        } else {
+            auto [what, where] = r.error();
+            std::cout << "Error at " << where.line << ", " << where.col << ": " << what << '\n';
+        }
     }
 }
