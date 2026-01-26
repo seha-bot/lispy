@@ -29,24 +29,38 @@ Parser<std::optional<char>> maybe_quote() {
     return char_('\'').map([](char c) { return std::make_optional(c); }) or pure(std::optional<char>());
 }
 
+auto comment() {
+    return char_(';') > char_(';') > satisfy([](char c) { return c != '\n'; }).many() > char_('\n') > pure(0);
+}
+
+auto comments() { return ws() > (comment() > ws()).many() > pure(0); }
+
+auto parens(auto p) { return char_('(') > p < char_(')'); }
+
+auto to_list(Alloc& alloc) {
+    return [&alloc](std::vector<ast::Expr *> const& v) {
+        ast::Expr *acc = alloc.nil();
+        for (auto it = v.rbegin(); it != v.rend(); ++it) {
+            acc = alloc.cons(*it, acc);
+        }
+        return acc;
+    };
+}
+
+auto add_quotes(Alloc& alloc) {
+    return [&alloc](std::tuple<std::optional<char>, ast::Expr *> x) -> ast::Expr * {
+        if (std::get<0>(x)) {
+            return alloc.cons(alloc.atom("QUOTE"), alloc.cons(std::get<1>(x), alloc.nil()));
+        } else {
+            return std::get<1>(x);
+        }
+    };
+}
+
 Parser<ast::Expr *> s_expr(Alloc& alloc) {
-    return ws() > sequence(maybe_quote(),
-                           atom(alloc) or char_('(') > recurse([&alloc] { return s_expr(alloc); })
-                                                           .many()
-                                                           .map([&alloc](std::vector<ast::Expr *> const& v) {
-                                                               ast::Expr *acc = alloc.nil();
-                                                               for (auto it = v.rbegin(); it != v.rend(); ++it) {
-                                                                   acc = alloc.cons(*it, acc);
-                                                               }
-                                                               return acc;
-                                                           }) < ws() < char_(')'))
-                      .map([&alloc](std::tuple<std::optional<char>, ast::Expr *> x) -> ast::Expr * {
-                          if (std::get<0>(x)) {
-                              return alloc.cons(alloc.atom("QUOTE"), alloc.cons(std::get<1>(x), alloc.nil()));
-                          } else {
-                              return std::get<1>(x);
-                          }
-                      });
+    auto self = recurse([&alloc] { return s_expr(alloc); });
+    return comments() > sequence(maybe_quote(), atom(alloc) or parens(comments() > self.many().map(to_list(alloc))))
+                            .map(add_quotes(alloc)) < comments();
 }
 
 }  // namespace parse

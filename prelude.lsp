@@ -1,10 +1,18 @@
-(LABEL sequence (LAMBDA (x) '()))
+(LABEL null (LAMBDA (x)
+    (EQ x '())
+))
 
-(LABEL out (LAMBDA (x) (
-    COND
-        ((ATOM x) x)
-        ('T (sequence
-            (PRINT (CAR x))
-            (out (CDR x))
-        ))
-)))
+;; (DEFMACRO defun (name args body)
+;;   (list 'LABEL name
+;;     (list 'LAMBDA args body)))
+
+;; (defun null (x)
+;;   (EQ x '()))
+
+;; (defun and (x y)
+;;   (COND (x (COND (y 'T) ('T 'F)))
+;;         ('T 'F)))
+
+;; (defun not (x)
+;;     (COND (x 'F)
+;;           ('T 'T)))

@@ -113,8 +113,6 @@ struct Parser {
     }
 };
 
-template struct Parser<char>;
-
 template <typename T>
 auto pure(T value) {
     using P = Parser<T>;
@@ -155,7 +153,7 @@ Parser<char> char_(char c) {
 }
 
 Parser<int> ws() {
-    return satisfy([](char c) { return std::isspace(c); }).many().map([](auto&&) { return 0; });
+    return satisfy([](char c) { return std::isspace(c); }).many() > pure(0);
 }
 
 }  // namespace parse
