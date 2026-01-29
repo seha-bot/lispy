@@ -28,8 +28,8 @@ Env env;
 parse::Parser<ast::Expr *>::Ok run(std::string_view input, parse::Pos pos) {
     if (auto r = p.run(input, pos)) {
         try {
-            std::cout << "[Debug] prog: " << r->value->format() << '\n';
-            eval(r->value, env, alloc);
+            // std::cout << "[Debug] prog: " << r->value->format() << '\n';
+            eval(alloc, r->value, env);
         } catch (std::exception const& err) {
             std::cout << "Runtime error: " << err.what() << '\n';
         }
@@ -69,9 +69,18 @@ int main(int argc, char *argv[]) {
     }
 
     using_history();
+    read_history("repl_history.txt");
 
     while (auto input = std::unique_ptr<char, FreeDeleter>(readline("> "))) {
         add_history(input.get());
+        write_history("repl_history.txt");
+
+        if (std::string_view(input.get()) == ":env") {
+            for (auto [k, v] : env) {
+                std::cout << k->format() << " -> " << v->format() << '\n';
+            }
+            continue;
+        }
 
         if (auto r = p.run(input.get(), parse::Pos{1, 1})) {
             if (not r->rest.empty()) {
@@ -79,9 +88,9 @@ int main(int argc, char *argv[]) {
             }
             // std::cout << "[Debug] prog: " << r->value->format() << '\n';
             try {
-                eval(r->value, env, alloc);
+                auto e = eval(alloc, r->value, env);
                 std::cout << '\n';
-                // std::cout << eval(r->value, env, alloc)->format() << '\n';
+                std::cout << e->format() << '\n';
             } catch (std::exception const& err) {
                 std::cout << "Runtime error: " << err.what() << '\n';
             }
