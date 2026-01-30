@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <cstdint>
 #include <expected>
 #include <iostream>
 #include <string>
@@ -8,7 +9,6 @@
 #include "gc.hpp"
 
 enum class Mnemonic {
-    atom,
     eq,
     cons,
     car,
@@ -16,32 +16,30 @@ enum class Mnemonic {
     jt,
     jf,
     jmp,
-    call,
-    ret,
     push,
+    call,
     pop,
+    ret,
     set,
     halt,
     print,
 };
 
 enum class OperandType {
-    register_,
-    stack,
+    literal,
     atom,
-    number,
+    stack,
 };
 
 struct Operand {
-    OperandType type;
-    std::size_t value;
+    OperandType type{};
+    std::int64_t value{};
 };
 
 struct Instruction {
     Mnemonic mnemonic;
     Operand o1;
     Operand o2;
-    Operand o3;
 };
 
 struct Object : GC::Node {
@@ -80,33 +78,62 @@ private:
     Object *m_car, *m_cdr;
 };
 
-struct Machine {
-    std::vector<Instruction> instructions;
-    std::vector<Object *> object_stack;
-    std::vector<std::size_t> number_stack;
-    Object *a{}, *b{}, *c{};
-    std::size_t ip = 0;
-    bool sf = false;
+// TODO: rename this to Object and rename former Object to GCObject
+struct StackElement {
+    // TODO: rename value to number
+    union {
+        std::int64_t value;
+        Object *object;
+    };
+    enum class Type { value, object } type;
+};
 
-    Object *& get_register(std::size_t id) {
-        switch (id) {
-            case 0:
-                return a;
-            case 1:
-                return b;
-            case 2:
-                return c;
-            default:
-                std::unreachable();
-        }
+struct Machine {
+    StackElement& unsafe_seek(std::int64_t i) { return m_stack[m_stack.size() - 1 - static_cast<std::size_t>(i)]; }
+    StackElement& unsafe_top() { return m_stack.back(); }
+
+    StackElement unsafe_pop() {
+        auto top = m_stack.back();
+        m_stack.pop_back();
+        return top;
     }
 
-    Object *object_stack_get(std::size_t i) {
-        if (object_stack.size() - 1 - i < 0) {
+    void push(Object *obj) { m_stack.push_back(StackElement{.object = obj, .type = StackElement::Type::object}); }
+    void push(std::int64_t val) { m_stack.push_back(StackElement{.value = val, .type = StackElement::Type::value}); }
+
+    bool has(std::int64_t n) const { return n <= static_cast<std::int64_t>(m_stack.size()); }
+
+    bool unsafe_seek_is_object(std::int64_t i) { return unsafe_seek(i).type == StackElement::Type::object; }
+
+    void push_call(std::size_t ip) { m_return_stack.push_back(ip); }
+
+    std::size_t unsafe_pop_call() {
+        auto ip = m_return_stack.back();
+        m_return_stack.pop_back();
+        return ip;
+    }
+
+    std::size_t call_depth() const { return m_return_stack.size(); }
+
+    void instruct(Mnemonic mnemonic, Operand op1 = Operand{}, Operand op2 = Operand{}) {
+        m_instructions.emplace_back(mnemonic, op1, op2);
+    }
+
+    Instruction const *current() const {
+        if (ip >= m_instructions.size()) {
             return nullptr;
         }
-        return object_stack[object_stack.size() - 1 - i];
+        return &m_instructions[ip];
     }
+
+private:
+    std::vector<StackElement> m_stack;
+    std::vector<std::size_t> m_return_stack;
+    std::vector<Instruction> m_instructions;
+
+public:
+    std::size_t ip = 0;
+    bool sf = false;
 };
 
 struct AtomStorage {
@@ -116,17 +143,22 @@ struct AtomStorage {
         register_("NIL");
     }
 
+    AtomStorage(AtomStorage const&) = delete;
+    AtomStorage& operator=(AtomStorage const&) = delete;
+
     static constexpr std::size_t false_ = 0;
     static constexpr std::size_t true_ = 1;
     static constexpr std::size_t nil = 2;
 
+    // TODO: rename to allocate or something better
     std::size_t register_(std::string atom) {
         m_atoms.push_back(Atom::make(m_gc, m_atoms.size()));
         m_atom_names.push_back(std::move(atom));
         return m_atoms.size() - 1;
     }
 
-    Atom *get(std::size_t id) { return m_atoms[id].get(); }
+    // NOTE: we assume that all atom ids are correct since they're literals anyways.
+    Atom *get(std::int64_t id) { return m_atoms[static_cast<std::size_t>(id)].get(); }
     std::string const& get_name(std::size_t id) const { return m_atom_names[id]; }
 
 private:
@@ -137,8 +169,11 @@ private:
 
 enum class StepResult {
     ok,
+    ok_do_not_increment_ip,
     stack_overrun,
+    call_stack_overrun,
     mismatched_type,
+    invalid_return_address,
     halt,
 };
 
@@ -146,241 +181,198 @@ std::string format_sr(StepResult sr) {
     switch (sr) {
         case StepResult::ok:
             return "ok";
+        case StepResult::ok_do_not_increment_ip:
+            return "ok_do_not_increment_ip";
         case StepResult::stack_overrun:
             return "stack_overrun";
+        case StepResult::call_stack_overrun:
+            return "call_stack_overrun";
         case StepResult::mismatched_type:
             return "mismatched_type";
+        case StepResult::invalid_return_address:
+            return "invalid_return_address";
         case StepResult::halt:
             return "halt";
     }
 }
 
-Atom *boolean_test(AtomStorage& as, Machine& m, bool b) {
-    m.sf = b;
-    return as.get(b ? AtomStorage::true_ : AtomStorage::false_);
-}
-
 std::expected<Object *, StepResult> fetch_object(AtomStorage& as, Machine& m, Operand op) {
     switch (op.type) {
-        case OperandType::register_:
-            return m.get_register(op.value);
-        case OperandType::stack:
-            if (auto *obj = m.object_stack_get(op.value)) {
-                return obj;
-            }
-            return std::unexpected(StepResult::stack_overrun);
+        case OperandType::literal:
+            return std::unexpected(StepResult::mismatched_type);
         case OperandType::atom:
             return as.get(op.value);
-        case OperandType::number:
-            return std::unexpected(StepResult::mismatched_type);
-    }
-}
-
-std::expected<std::size_t, StepResult> fetch_atom_id(Machine& m, Operand op) {
-    switch (op.type) {
-        case OperandType::register_: {
-            auto *reg = m.get_register(op.value);
-            if (reg->is_atom()) {
-                return static_cast<Atom&>(*reg).id();
-            } else {
-                return std::unexpected(StepResult::mismatched_type);
+        case OperandType::stack: {
+            auto& obj = m.unsafe_seek(op.value);
+            if (obj.type != StackElement::Type::object) {
+                return std::unexpected(StepResult::stack_overrun);
             }
+            return obj.object;
         }
-        case OperandType::stack:
-            if (auto *obj = m.object_stack_get(op.value)) {
-                if (obj->is_atom()) {
-                    return static_cast<Atom&>(*obj).id();
-                } else {
-                    return std::unexpected(StepResult::mismatched_type);
-                }
-            }
-            return std::unexpected(StepResult::stack_overrun);
-        case OperandType::atom:
-            return op.value;
-        case OperandType::number:
-            return std::unexpected(StepResult::mismatched_type);
     }
 }
 
-std::expected<Cons *, StepResult> fetch_cons(Machine& m, Operand op) {
+std::expected<std::int64_t, StepResult> fetch_literal(Operand op) {
     switch (op.type) {
-        case OperandType::register_: {
-            auto *reg = m.get_register(op.value);
-            if (reg->is_cons()) {
-                return static_cast<Cons *>(reg);
-            } else {
-                return std::unexpected(StepResult::mismatched_type);
-            }
-        }
-        case OperandType::stack:
-            if (auto obj = m.object_stack_get(op.value)) {
-                if (obj->is_cons()) {
-                    return static_cast<Cons *>(obj);
-                } else {
-                    return std::unexpected(StepResult::mismatched_type);
-                }
-            }
-            return std::unexpected(StepResult::stack_overrun);
-        case OperandType::atom:
-        case OperandType::number:
-            return std::unexpected(StepResult::mismatched_type);
-    }
-}
-
-std::expected<std::size_t, StepResult> fetch_number(Operand op) {
-    switch (op.type) {
-        case OperandType::register_:
-        case OperandType::stack:
-        case OperandType::atom:
-            return std::unexpected(StepResult::mismatched_type);
-        case OperandType::number:
+        case OperandType::literal:
             return op.value;
+        case OperandType::atom:
+        case OperandType::stack:
+            return std::unexpected(StepResult::mismatched_type);
     }
 }
 
 StepResult step(GC& gc, AtomStorage& as, Machine& m) {
-    auto& instruction = m.instructions[m.ip];
+    if (not m.current()) {
+        return StepResult::halt;
+    }
+    auto& instruction = *m.current();
+
     switch (instruction.mnemonic) {
-        case Mnemonic::atom: {  // atom dest x
-            auto& dest = m.get_register(instruction.o1.value);
-            auto& arg = instruction.o2;
-            switch (arg.type) {
-                case OperandType::register_:
-                    dest = boolean_test(as, m, m.get_register(arg.value)->is_atom());
+        case Mnemonic::eq: {  // eq
+            if (not m.has(2)) {
+                return StepResult::stack_overrun;
+            }
+            auto arg1 = m.unsafe_pop();
+            auto arg2 = m.unsafe_pop();
+            if (arg1.type != arg2.type) {
+                m.sf = false;
+                return StepResult::ok;
+            }
+            switch (arg1.type) {
+                case StackElement::Type::value:
+                    m.sf = arg1.value == arg2.value;
                     return StepResult::ok;
-                case OperandType::stack: {
-                    auto obj = m.object_stack_get(arg.value);
-                    if (!obj) {
-                        return StepResult::stack_overrun;
-                    }
-                    dest = boolean_test(as, m, obj->is_atom());
+                case StackElement::Type::object:
+                    m.sf = arg1.object == arg2.object && arg1.object->is_atom();
                     return StepResult::ok;
-                }
-                case OperandType::atom:
-                    dest = boolean_test(as, m, true);
-                    return StepResult::ok;
-                case OperandType::number:
-                    return StepResult::mismatched_type;
             }
         }
-        case Mnemonic::eq: {  // eq dest x y
-            auto& dest = m.get_register(instruction.o1.value);
-            auto arg1_id = fetch_atom_id(m, instruction.o2);
-            if (!arg1_id) {
-                return arg1_id.error();
+        case Mnemonic::cons: {  // cons
+            if (not m.has(2)) {
+                return StepResult::stack_overrun;
             }
-            auto arg2_id = fetch_atom_id(m, instruction.o3);
-            if (!arg2_id) {
-                return arg1_id.error();
+            if (not m.unsafe_seek_is_object(0) or not m.unsafe_seek_is_object(1)) {
+                return StepResult::mismatched_type;
             }
-            dest = boolean_test(as, m, arg1_id == arg2_id);
-        }
-        case Mnemonic::cons: {  // cons dest x xs
-            auto& dest = m.get_register(instruction.o1.value);
-            auto x = fetch_object(as, m, instruction.o2);
-            if (!x) {
-                return x.error();
-            }
-            auto xs = fetch_object(as, m, instruction.o3);
-            if (!xs) {
-                return xs.error();
-            }
-            dest = Cons::make(gc, *x, *xs).get();
+            auto arg1 = m.unsafe_pop();
+            auto arg2 = m.unsafe_top();
+            m.unsafe_top().object = Cons::make(gc, arg1.object, arg2.object).get();
             return StepResult::ok;
         }
-        case Mnemonic::car: {  // car dest x
-            auto& dest = m.get_register(instruction.o1.value);
-            auto x = fetch_cons(m, instruction.o2);
-            if (!x) {
-                return x.error();
+        case Mnemonic::car: {  // car
+            if (not m.has(1)) {
+                return StepResult::stack_overrun;
             }
-            dest = (*x)->car();
+            auto& arg1 = m.unsafe_top();
+            if (arg1.type != StackElement::Type::object or not arg1.object->is_cons()) {
+                return StepResult::mismatched_type;
+            }
+            m.unsafe_top().object = static_cast<Cons&>(*arg1.object).car();
             return StepResult::ok;
         }
-        case Mnemonic::cdr: {  // cdr dest x
-            auto& dest = m.get_register(instruction.o1.value);
-            auto x = fetch_cons(m, instruction.o2);
-            if (!x) {
-                return x.error();
+        case Mnemonic::cdr: {  // cdr
+            if (not m.has(1)) {
+                return StepResult::stack_overrun;
             }
-            dest = (*x)->cdr();
+            auto& arg1 = m.unsafe_top();
+            if (arg1.type != StackElement::Type::object or not arg1.object->is_cons()) {
+                return StepResult::mismatched_type;
+            }
+            m.unsafe_top().object = static_cast<Cons&>(*arg1.object).cdr();
             return StepResult::ok;
         }
         case Mnemonic::jt: {  // jt offset
-            auto offset = fetch_number(instruction.o1);
+            auto offset = fetch_literal(instruction.o1);
             if (!offset) {
                 return offset.error();
             }
             if (m.sf) {
-                m.ip += *offset;
+                m.ip += static_cast<std::size_t>(*offset);
+                return StepResult::ok_do_not_increment_ip;
             }
             return StepResult::ok;
         }
         case Mnemonic::jf: {  // jf offset
-            auto offset = fetch_number(instruction.o1);
+            auto offset = fetch_literal(instruction.o1);
             if (!offset) {
                 return offset.error();
             }
             if (not m.sf) {
-                m.ip += *offset;
+                m.ip += static_cast<std::size_t>(*offset);
+                return StepResult::ok_do_not_increment_ip;
             }
             return StepResult::ok;
         }
         case Mnemonic::jmp: {  // jmp offset
-            auto offset = fetch_number(instruction.o1);
+            auto offset = fetch_literal(instruction.o1);
             if (!offset) {
                 return offset.error();
             }
-            m.ip += *offset;
-            return StepResult::ok;
-        }
-        case Mnemonic::call: {  // call offset
-            auto offset = fetch_number(instruction.o1);
-            if (!offset) {
-                return offset.error();
-            }
-            m.number_stack.push_back(m.ip + 1);
-            m.ip += *offset;
-            return StepResult::ok;
-        }
-        case Mnemonic::ret: {  // ret n
-            auto n = fetch_number(instruction.o1);
-            if (!n) {
-                return n.error();
-            }
-            if (m.number_stack.size() < *n + 1) {
-                return StepResult::stack_overrun;
-            }
-            m.ip = m.number_stack.back();
-            for (std::size_t i = 0; i <= *n; ++i) {
-                m.number_stack.pop_back();
-            }
-            return StepResult::ok;
+            m.ip += static_cast<std::size_t>(*offset);
+            return StepResult::ok_do_not_increment_ip;
         }
         case Mnemonic::push: {  // push x
             auto x = fetch_object(as, m, instruction.o1);
             if (!x) {
                 return x.error();
             }
-            m.object_stack.push_back(*x);
+            m.push(*x);
             return StepResult::ok;
         }
-        case Mnemonic::pop: {  // pop dest
-            auto& dest = m.get_register(instruction.o1.value);
-            if (m.object_stack.empty()) {
+        case Mnemonic::call: {  // call offset
+            auto offset = fetch_literal(instruction.o1);
+            if (!offset) {
+                return offset.error();
+            }
+            m.push_call(m.ip + 1);
+            m.ip += static_cast<std::size_t>(*offset);
+            return StepResult::ok_do_not_increment_ip;
+        }
+        case Mnemonic::pop: {  // pop n
+            auto n = fetch_literal(instruction.o1);
+            if (!n) {
+                return n.error();
+            }
+            if (*n < 0 or not m.has(*n)) {
                 return StepResult::stack_overrun;
             }
-            dest = m.object_stack.back();
-            m.object_stack.pop_back();
+            for (std::int64_t i = 0; i < *n; ++i) {
+                m.unsafe_pop();
+            }
             return StepResult::ok;
         }
-        case Mnemonic::set: {  // set dest x
-            auto& dest = m.get_register(instruction.o1.value);
-            auto x = fetch_object(as, m, instruction.o2);
-            if (!x) {
-                return x.error();
+        case Mnemonic::ret: {  // ret n
+            auto n = fetch_literal(instruction.o1);
+            if (!n) {
+                return n.error();
             }
-            dest = *x;
+            if (*n < 0 or not m.has(*n)) {
+                return StepResult::stack_overrun;
+            }
+            if (m.call_depth() == 0) {
+                return StepResult::call_stack_overrun;
+            }
+
+            for (std::int64_t i = 0; i < *n; ++i) {
+                m.unsafe_pop();
+            }
+            m.ip = m.unsafe_pop_call();
+            return StepResult::ok_do_not_increment_ip;
+        }
+        case Mnemonic::set: {  // set i src
+            auto i = fetch_literal(instruction.o1);
+            if (!i) {
+                return i.error();
+            }
+            if (*i < 0 or not m.has(*i)) {
+                return StepResult::stack_overrun;
+            }
+            auto src = fetch_object(as, m, instruction.o2);
+            if (!src) {
+                return src.error();
+            }
+            m.unsafe_seek(*i).object = *src;
             return StepResult::ok;
         }
         case Mnemonic::halt:  // halt
@@ -402,11 +394,13 @@ void execute(GC& gc, AtomStorage& as, Machine& m) {
         if (sr == StepResult::halt) {
             break;
         }
-        if (sr != StepResult::ok) {
-            std::cout << "Error: " << format_sr(sr) << '\n';
+        if (sr != StepResult::ok and sr != StepResult::ok_do_not_increment_ip) {
+            std::cout << "[Error] at " << m.ip << ": " << format_sr(sr) << '\n';
             break;
         }
-        m.ip += 1;
+        if (sr != StepResult::ok_do_not_increment_ip) {
+            m.ip += 1;
+        }
     }
 }
 
@@ -414,16 +408,24 @@ int main() {
     GC gc;
     AtomStorage as(gc);
 
+    // auto c = as.register_("C");
+    // auto b = as.register_("B");
+    // auto a = as.register_("A");
+
     Machine m;
-    m.instructions.emplace_back(Mnemonic::print, Operand{OperandType::atom, AtomStorage::nil});
-    m.instructions.emplace_back(Mnemonic::halt);
+
+    m.instruct(Mnemonic::push, Operand{OperandType::atom, AtomStorage::true_});
+    m.instruct(Mnemonic::call, Operand{OperandType::literal, 6});
+    m.instruct(Mnemonic::jf, Operand{OperandType::literal, 3});
+    m.instruct(Mnemonic::print, Operand{OperandType::atom, AtomStorage::true_});
+    m.instruct(Mnemonic::halt);
+    m.instruct(Mnemonic::print, Operand{OperandType::atom, AtomStorage::false_});
+    m.instruct(Mnemonic::halt);
 
     // null
-    m.instructions.emplace_back(Mnemonic::atom, Operand{OperandType::register_, 0}, Operand{OperandType::stack, 1});
-    m.instructions.emplace_back(Mnemonic::jf, Operand{OperandType::number, 2});
-    m.instructions.emplace_back(Mnemonic::atom, Operand{OperandType::register_, 0}, Operand{OperandType::stack, 1},
-                                Operand{OperandType::atom, AtomStorage::nil});
-    m.instructions.emplace_back(Mnemonic::ret, Operand{OperandType::number, 1});
+    m.instruct(Mnemonic::push, Operand{OperandType::atom, AtomStorage::nil});
+    m.instruct(Mnemonic::eq);
+    m.instruct(Mnemonic::ret, Operand{OperandType::literal, 0});
 
     execute(gc, as, m);
 }
