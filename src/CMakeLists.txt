@@ -17,3 +17,5 @@ pkg_check_modules(Readline REQUIRED IMPORTED_TARGET readline)
 
 add_executable(lispy main.cpp)
 target_link_libraries(lispy PRIVATE lispy_core PkgConfig::Readline)
+
+add_subdirectory(vm)
