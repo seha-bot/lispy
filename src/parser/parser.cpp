@@ -135,7 +135,7 @@ std::vector<std::unique_ptr<ast::Expr>> run_parser(std::string_view input) {
     }
 
     auto exprs = *std::move(exprs_res);
-    if (not std::ranges::all_of(exprs.second, [](char c) { return std::isspace(c); })) {
+    if (next_token(exprs_res->second)) {
         throw std::runtime_error("unexpected text: " + std::string(exprs.second));
     }
 

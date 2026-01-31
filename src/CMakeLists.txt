@@ -12,8 +12,8 @@ target_sources(lispy_core
 )
 target_link_libraries(lispy_core INTERFACE compiler_flags)
 
-add_subdirectory(vm)
 add_subdirectory(parser)
+add_subdirectory(vm)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(Readline REQUIRED IMPORTED_TARGET readline)
