@@ -7,7 +7,6 @@
 #include <optional>
 #include <stdexcept>
 #include <utility>
-#include <vector>
 
 enum class TokenType { parenthesis, quote, identifier, number, string };
 
