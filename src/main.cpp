@@ -1,15 +1,11 @@
-#include <cstdio>
+#include <cstdio>  // required for readline, do NOT remove again
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
-#include <memory>
 #include <sstream>
 #include <stdexcept>
-#include <utility>
 
-#include "alloc.hpp"
-#include "eval.hpp"
-#include "lisp_parser.hpp"
+#include "parser/include/parser.hpp"
 
 extern "C" {
 #include <readline/history.h>
@@ -20,86 +16,31 @@ struct FreeDeleter {
     static void operator()(void *ptr) { std::free(ptr); }
 };
 
-GC gc;
-Alloc alloc(gc);
-auto p = parse::s_expr(alloc);
-Env env;
-
-parse::Parser<ast::Expr *>::Ok run(std::string_view input, parse::Pos pos) {
-    if (auto r = p.run(input, pos)) {
-        try {
-            // std::cout << "[Debug] prog: " << r->value->format() << '\n';
-            eval(alloc, r->value, env);
-        } catch (std::exception const& err) {
-            std::cout << "Runtime error: " << err.what() << '\n';
-        }
-        gc.collect();
-        return *r;
-    } else {
-        auto [what, where] = r.error();
-        std::cout << "[Error] at " << where.line << ':' << where.col << ": " << what << '\n';
-        throw std::runtime_error("yeah");
-    }
-}
-
 int main(int argc, char *argv[]) {
-    // {auto p = parse::ignorable();
-    //     std::cout << p.run(";; hello\n;; wazzup\n", parse::Pos{1, 1}).value().rest;
-    //     return 0;
-    // }
+    if (argc != 2) {
+        std::cerr << "Usage: lispy <input_file>\n";
+        return EXIT_FAILURE;
+    }
 
-    // argc = 2;
-    // argv[1] = "/home/seha/repos/lispy/prelude.lsp";
-    if (argc == 2) {
+    auto program = [&] {
         std::ifstream f(argv[1]);
         if (not f) {
             throw std::runtime_error("file something");
         }
         std::stringstream buffer;
         buffer << f.rdbuf();
-        auto s = buffer.str();
-        // std::cout << s << '\n';
-        std::string_view sv = s;
-        parse::Pos pos{1, 1};
-        while (not sv.empty()) {
-            auto r = run(sv, pos);
-            sv = r.rest;
-            pos = r.where;
-        }
+        return run_parser(buffer.str());
+    }();
+
+    for (auto& x : program) {
+        std::cout << x->format() << '\n';
     }
 
-    using_history();
-    read_history("repl_history.txt");
+    // using_history();
+    // read_history("repl_history.txt");
 
-    while (auto input = std::unique_ptr<char, FreeDeleter>(readline("> "))) {
-        add_history(input.get());
-        write_history("repl_history.txt");
-
-        if (std::string_view(input.get()) == ":env") {
-            for (auto [k, v] : env) {
-                std::cout << k->format() << " -> " << v->format() << '\n';
-            }
-            continue;
-        }
-
-        if (auto r = p.run(input.get(), parse::Pos{1, 1})) {
-            if (not r->rest.empty()) {
-                std::cout << "[Warning] trailing_characters: \"" << r->rest << "\"\n";
-            }
-            // std::cout << "[Debug] prog: " << r->value->format() << '\n';
-            try {
-                auto e = eval(alloc, r->value, env);
-                std::cout << '\n';
-                std::cout << e->format() << '\n';
-            } catch (std::exception const& err) {
-                std::cout << "Runtime error: " << err.what() << '\n';
-            }
-            gc.collect();
-
-            // std::cout << "[Debug] GC nodes: " << gc.debug() << '\n';
-        } else {
-            auto [what, where] = r.error();
-            std::cout << "[Error] at " << where.line << ':' << where.col << ": " << what << '\n';
-        }
-    }
+    // while (auto input = std::unique_ptr<char, FreeDeleter>(readline("> "))) {
+    //     add_history(input.get());
+    //     write_history("repl_history.txt");
+    // }
 }

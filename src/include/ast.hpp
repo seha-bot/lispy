@@ -1,65 +1,55 @@
 #ifndef AST_HPP
 #define AST_HPP
 
+#include <cstdint>
+#include <memory>
+#include <ranges>
 #include <string>
-#include <unordered_map>
 #include <utility>
-#include <vector>
-
-#include "gc.hpp"
 
 namespace ast {
 
-struct Expr : GC::Node {
+struct Expr {
     virtual ~Expr() = default;
-    virtual std::string format(bool = true) const = 0;
+    virtual std::string format() const = 0;
 };
 
-class ExprAtom : public Expr, public GC::Managed<ExprAtom> {
-    friend GC::Managed<ExprAtom>;
-    ExprAtom(std::string value) : value(std::move(value)) {}
+struct Atom : Expr {
+    Atom(std::string value) : value(std::move(value)) {}
 
-public:
-    // static GC::Ptr<ExprAtom> make(GC& gc, std::string s) {
-    //     GC::Ptr<ExprAtom> p(new ExprAtom(std::move(s)));
-    //     gc.register_(p.get());
-    //     return p;
-    // }
-
-    std::string format(bool = true) const override { return value; }
+    std::string format() const override { return value; }
 
     std::string value;
 };
 
-class ExprCons : public Expr, public GC::Managed<ExprCons> {
-    friend GC::Managed<ExprCons>;
-    ExprCons(Expr *car, Expr *cdr) : car(car), cdr(cdr) {
-        depend_on(car);
-        depend_on(cdr);
-    }
+struct NumberLiteral : Expr {
+    NumberLiteral(std::int64_t value) : value(value) {}
 
-public:
-    Expr *car, *cdr;
+    std::string format() const override { return std::to_string(value); }
 
-    std::string format(bool parens = true) const override {
-        std::string r;
-        if (parens) {
-            r += '(';
-        }
-        r += car->format(true);
-        if (auto *e = dynamic_cast<ExprAtom *>(cdr); not e or e->value != "NIL") {
-            r += ' ' + cdr->format(false);
-        }
-        if (parens) {
-            r += ')';
-        }
-        return r;
-    }
+    std::int64_t value;
 };
 
-Expr *car_(Expr *e) { return dynamic_cast<ExprCons&>(*e).car; }
-Expr *cdr_(Expr *e) { return dynamic_cast<ExprCons&>(*e).cdr; }
-bool is_atom(Expr *e) { return dynamic_cast<ExprAtom *>(e) != nullptr; }
+struct StringLiteral : Expr {
+    StringLiteral(std::string value) : value(std::move(value)) {}
+
+    std::string format() const override { return "\"" + value + "\""; }
+    std::string value;
+};
+
+struct List : Expr {
+    List(std::vector<std::unique_ptr<Expr>> list) : list(std::move(list)) {}
+
+    std::string format() const override {
+        std::string r = "(";
+        r.append_range(list | std::views::transform([](auto const& x) { return x->format(); }) |
+                       std::views::join_with(' '));
+        r.push_back(')');
+        return r;
+    }
+
+    std::vector<std::unique_ptr<Expr>> list;
+};
 
 }  // namespace ast
 

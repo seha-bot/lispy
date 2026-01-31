@@ -1,6 +1,9 @@
 #ifndef NEW_GC_HPP
 #define NEW_GC_HPP
 
+#include <algorithm>
+#include <concepts>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -20,8 +23,20 @@ struct GC {
         virtual ~Node() = default;
 
         void depend_on(Node *that) { dependencies.push_back(that); }
-        void lock() noexcept { locked = true; }
-        void unlock() noexcept { locked = false; }
+
+        void lock() {
+            if (locked) {
+                throw std::runtime_error("double lock");
+            }
+            locked = true;
+        }
+
+        void unlock() {
+            if (not locked) {
+                throw std::runtime_error("double unlock");
+            }
+            locked = false;
+        }
 
     private:
         std::vector<Node *> dependencies;
@@ -33,7 +48,7 @@ struct GC {
     template <typename T>
     struct Ptr {
         Ptr() : m_ptr(nullptr) {}
-        Ptr(T *ptr) : m_ptr(ptr) { ptr->lock(); }
+        explicit Ptr(T *ptr) : m_ptr(ptr) { ptr->lock(); }
         Ptr(Ptr const&) = delete;
         Ptr& operator=(Ptr const&) = delete;
 
@@ -50,6 +65,9 @@ struct GC {
         }
 
         T *get() const { return m_ptr; }
+
+        T& operator*() const { return *m_ptr; }
+        T *operator->() const { return m_ptr; }
 
     private:
         T *m_ptr;
