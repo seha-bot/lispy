@@ -1,5 +1,6 @@
 #include "compiler.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <stdexcept>
 #include <utility>
@@ -119,13 +120,13 @@ static CompilationResult compile_expr(std::vector<Line>& code, ast::Expr& expr, 
             } else {
                 bool is_local = false;
                 // TODO: replace this with a new parameter for the compiler which holds local names.
-                auto it = std::ranges::find_if(code, [](Line const& l) {
+                auto it = std::find_if(code.rbegin(), code.rend(), [](Line const& l) {
                     if (auto *label = std::get_if<Label>(&l)) {
-                        return label->name.at(0) == '.';
+                        return not label->parameters.empty();
                     }
                     return false;
                 });
-                if (it != code.end()) {
+                if (it != code.rend()) {
                     auto& label = *std::get_if<Label>(&*it);
                     if (std::ranges::find(label.parameters, callee) != label.parameters.end()) {
                         is_local = true;
@@ -188,7 +189,7 @@ static CompilationResult compile_define(std::vector<Line>& code, ast::List& list
                     return res;
                 }
                 if (i != list.elements.size() - 1) {
-                    code.push_back(Instruction{Mnemonic::pop});
+                    code.push_back(Instruction{Mnemonic::pop, LiteralOperand{1}});
                 }
             }
             if (params.elements.size() == 1) {
