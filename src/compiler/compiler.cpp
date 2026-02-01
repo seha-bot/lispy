@@ -46,8 +46,11 @@ static CompilationResult compile_expr(std::vector<Line>& code, ast::Expr& expr, 
             return CompilationResult::ok;
         }
         case ast::ExprType::string: {
-            auto& string = static_cast<ast::String&>(expr);
-            code.push_back(Instruction{Mnemonic::strp, StringOperand{string.value}});
+            auto& string = static_cast<ast::String&>(expr).value;
+            code.push_back(Instruction{Mnemonic::mkstr});
+            for (char c : string) {
+                code.push_back(Instruction{Mnemonic::strpush, CharOperand{c}});
+            }
             return CompilationResult::ok;
         }
         case ast::ExprType::list: {
@@ -244,7 +247,7 @@ static std::string to_string(LiteralOperand const& o) {
     return std::to_string(o.value);
 }
 
-static std::string to_string(StringOperand const& o) { return '"' + o.value + '"'; }
+static std::string to_string(CharOperand const& o) { return '\'' + std::string{o.value} + '\''; }
 
 static std::string to_string(LabelOperand const& o) { return o.name; }
 

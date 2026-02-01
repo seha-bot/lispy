@@ -19,15 +19,15 @@ struct LiteralOperand {
     bool is_stack = false;
 };
 
-struct StringOperand {
-    std::string value;
+struct CharOperand {
+    char value;
 };
 
 struct LabelOperand {
     std::string name;
 };
 
-using Operand = std::variant<std::monostate, AtomOperand, LiteralOperand, StringOperand, LabelOperand>;
+using Operand = std::variant<std::monostate, AtomOperand, LiteralOperand, CharOperand, LabelOperand>;
 
 struct Instruction {
     Mnemonic mnemonic;

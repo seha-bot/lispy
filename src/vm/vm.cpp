@@ -2,18 +2,16 @@
 #include <cstdint>
 #include <expected>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "gc.hpp"
 #include "mnemonic.hpp"
 
-enum class OperandType {
-    literal,
-    atom,
-    stack,
-};
+enum class OperandType { literal, atom, stack };
 
 struct Operand {
     OperandType type{};
@@ -62,41 +60,30 @@ private:
     Object *m_car, *m_cdr;
 };
 
-// TODO: rename this to Object and rename former Object to GCObject
-struct StackElement {
-    // TODO: rename value to number
-    union {
-        std::int64_t value;
-        Object *object;
-    };
-    enum class Type { value, object } type;
-};
-
 struct Machine {
-    StackElement& unsafe_seek(std::int64_t i) { return m_stack[m_stack.size() - 1 - static_cast<std::size_t>(i)]; }
-    StackElement& unsafe_top() { return m_stack.back(); }
+    using Entry = std::variant<std::int64_t, Object *, std::shared_ptr<std::string>>;
 
-    StackElement unsafe_pop() {
+    Entry& unsafe_seek(std::int64_t i) { return m_stack[m_stack.size() - 1 - static_cast<std::size_t>(i)]; }
+    Entry& unsafe_top() { return unsafe_seek(0); }
+
+    bool unsafe_seek_is_object(std::int64_t i) { return std::holds_alternative<Object *>(unsafe_seek(i)); }
+    Object **unsafe_seek_object(std::int64_t i) { return std::get_if<Object *>(&unsafe_seek(i)); }
+
+    void push(Entry e) { m_stack.push_back(e); }
+    void push_call(std::size_t ip) { m_return_stack.push_back(ip); }
+
+    Entry unsafe_pop() {
         auto top = m_stack.back();
         m_stack.pop_back();
         return top;
     }
-
-    void push(Object *obj) { m_stack.push_back(StackElement{.object = obj, .type = StackElement::Type::object}); }
-    void push(std::int64_t val) { m_stack.push_back(StackElement{.value = val, .type = StackElement::Type::value}); }
-
-    bool has(std::int64_t n) const { return n <= static_cast<std::int64_t>(m_stack.size()); }
-
-    bool unsafe_seek_is_object(std::int64_t i) { return unsafe_seek(i).type == StackElement::Type::object; }
-
-    void push_call(std::size_t ip) { m_return_stack.push_back(ip); }
-
     std::size_t unsafe_pop_call() {
         auto ip = m_return_stack.back();
         m_return_stack.pop_back();
         return ip;
     }
 
+    bool has(std::int64_t n) const { return n <= static_cast<std::int64_t>(m_stack.size()); }
     std::size_t call_depth() const { return m_return_stack.size(); }
 
     void instruct(Mnemonic mnemonic, Operand op1 = Operand{}, Operand op2 = Operand{}) {
@@ -111,7 +98,7 @@ struct Machine {
     }
 
 private:
-    std::vector<StackElement> m_stack;
+    std::vector<Entry> m_stack;
     std::vector<std::size_t> m_return_stack;
     std::vector<Instruction> m_instructions;
 
@@ -160,7 +147,7 @@ enum class StepResult {
     halt,
 };
 
-std::string format_sr(StepResult sr) {
+static std::string format_sr(StepResult sr) {
     switch (sr) {
         case StepResult::ok:
             return "ok";
@@ -179,23 +166,22 @@ std::string format_sr(StepResult sr) {
     }
 }
 
-std::expected<Object *, StepResult> fetch_object(AtomStorage& as, Machine& m, Operand op) {
+static std::expected<Object *, StepResult> fetch_object(AtomStorage& as, Machine& m, Operand op) {
     switch (op.type) {
         case OperandType::literal:
             return std::unexpected(StepResult::mismatched_type);
         case OperandType::atom:
             return as.get(op.value);
         case OperandType::stack: {
-            auto& obj = m.unsafe_seek(op.value);
-            if (obj.type != StackElement::Type::object) {
-                return std::unexpected(StepResult::stack_overrun);
+            if (auto obj = m.unsafe_seek_object(op.value)) {
+                return *obj;
             }
-            return obj.object;
+            return std::unexpected(StepResult::mismatched_type);
         }
     }
 }
 
-std::expected<std::int64_t, StepResult> fetch_literal(Operand op) {
+static std::expected<std::int64_t, StepResult> fetch_literal(Operand op) {
     switch (op.type) {
         case OperandType::literal:
             return op.value;
@@ -205,7 +191,7 @@ std::expected<std::int64_t, StepResult> fetch_literal(Operand op) {
     }
 }
 
-StepResult step(GC& gc, AtomStorage& as, Machine& m) {
+static StepResult step(GC& gc, AtomStorage& as, Machine& m) {
     if (not m.current()) {
         return StepResult::halt;
     }
@@ -216,20 +202,17 @@ StepResult step(GC& gc, AtomStorage& as, Machine& m) {
             if (not m.has(2)) {
                 return StepResult::stack_overrun;
             }
-            auto arg1 = m.unsafe_pop();
-            auto arg2 = m.unsafe_pop();
-            if (arg1.type != arg2.type) {
+            auto arg1_ent = m.unsafe_pop();
+            auto arg2_ent = m.unsafe_pop();
+            auto arg1 = std::get_if<Object *>(&arg1_ent);
+            auto arg2 = std::get_if<Object *>(&arg2_ent);
+            if (not arg1 or not arg2) {
                 m.push(std::int64_t(0));
                 return StepResult::ok;
             }
-            switch (arg1.type) {
-                case StackElement::Type::value:
-                    m.push(arg1.value == arg2.value ? 1 : 0);
-                    return StepResult::ok;
-                case StackElement::Type::object:
-                    m.push(arg1.object == arg2.object && arg1.object->is_atom() ? 1 : 0);
-                    return StepResult::ok;
-            }
+
+            m.push(*arg1 == *arg2 && (*arg1)->is_atom() ? 1 : 0);
+            return StepResult::ok;
         }
         case Mnemonic::cons: {  // cons
             if (not m.has(2)) {
@@ -238,31 +221,31 @@ StepResult step(GC& gc, AtomStorage& as, Machine& m) {
             if (not m.unsafe_seek_is_object(0) or not m.unsafe_seek_is_object(1)) {
                 return StepResult::mismatched_type;
             }
-            auto arg1 = m.unsafe_pop();
-            auto arg2 = m.unsafe_top();
-            m.unsafe_top().object = Cons::make(gc, arg1.object, arg2.object).get();
+            auto arg1 = std::get<Object *>(m.unsafe_pop());
+            auto arg2 = std::get<Object *>(m.unsafe_top());
+            m.unsafe_top() = Cons::make(gc, arg1, arg2).get();
             return StepResult::ok;
         }
         case Mnemonic::car: {  // car
             if (not m.has(1)) {
                 return StepResult::stack_overrun;
             }
-            auto& arg1 = m.unsafe_top();
-            if (arg1.type != StackElement::Type::object or not arg1.object->is_cons()) {
+            auto arg1 = std::get_if<Object *>(&m.unsafe_top());
+            if (not arg1 or not(*arg1)->is_cons()) {
                 return StepResult::mismatched_type;
             }
-            m.unsafe_top().object = static_cast<Cons&>(*arg1.object).car();
+            m.unsafe_top() = static_cast<Cons&>(**arg1).car();
             return StepResult::ok;
         }
         case Mnemonic::cdr: {  // cdr
             if (not m.has(1)) {
                 return StepResult::stack_overrun;
             }
-            auto& arg1 = m.unsafe_top();
-            if (arg1.type != StackElement::Type::object or not arg1.object->is_cons()) {
+            auto arg1 = std::get_if<Object *>(&m.unsafe_top());
+            if (not arg1 or not(*arg1)->is_cons()) {
                 return StepResult::mismatched_type;
             }
-            m.unsafe_top().object = static_cast<Cons&>(*arg1.object).cdr();
+            m.unsafe_top() = static_cast<Cons&>(**arg1).cdr();
             return StepResult::ok;
         }
         case Mnemonic::jt: {  // jt offset
@@ -274,12 +257,13 @@ StepResult step(GC& gc, AtomStorage& as, Machine& m) {
                 return StepResult::stack_overrun;
             }
 
-            auto b = m.unsafe_pop();
-            if (b.type != StackElement::Type::value) {
+            auto b_ent = m.unsafe_pop();
+            auto b = std::get_if<std::int64_t>(&b_ent);
+            if (not b) {
                 return StepResult::mismatched_type;
             }
 
-            if (b.value) {
+            if (*b) {
                 m.ip += static_cast<std::size_t>(*offset);
                 return StepResult::ok_do_not_increment_ip;
             }
@@ -294,12 +278,13 @@ StepResult step(GC& gc, AtomStorage& as, Machine& m) {
                 return StepResult::stack_overrun;
             }
 
-            auto b = m.unsafe_pop();
-            if (b.type != StackElement::Type::value) {
+            auto b_ent = m.unsafe_pop();
+            auto b = std::get_if<std::int64_t>(&b_ent);
+            if (not b) {
                 return StepResult::mismatched_type;
             }
 
-            if (not b.value) {
+            if (not *b) {
                 m.ip += static_cast<std::size_t>(*offset);
                 return StepResult::ok_do_not_increment_ip;
             }
@@ -373,7 +358,7 @@ StepResult step(GC& gc, AtomStorage& as, Machine& m) {
             if (!src) {
                 return src.error();
             }
-            m.unsafe_seek(*i).object = *src;
+            m.unsafe_seek(*i) = *src;
             return StepResult::ok;
         }
         case Mnemonic::halt:  // halt
@@ -382,18 +367,38 @@ StepResult step(GC& gc, AtomStorage& as, Machine& m) {
             if (not m.has(1)) {
                 return StepResult::stack_overrun;
             }
-            auto top = m.unsafe_seek(0);
-            if (top.type == StackElement::Type::value) {
-                std::cout << top.value;
-            } else {
-                std::cout << top.object->format(as);
+            struct Visitor {
+                void operator()(std::int64_t val) { std::cout << val; }
+                void operator()(Object *obj) { std::cout << obj->format(as); }
+                void operator()(std::shared_ptr<std::string>& str) { std::cout << str; }
+                AtomStorage& as;
+            };
+            std::visit(Visitor{as}, m.unsafe_top());
+            return StepResult::ok;
+        }
+        case Mnemonic::mkstr: {  // mkstr
+            m.push(std::make_shared<std::string>());
+            return StepResult::ok;
+        }
+        case Mnemonic::strpush: {  // strpush c
+            auto c = fetch_literal(instruction.o1);
+            if (not c) {
+                return c.error();
             }
+            if (not m.has(1)) {
+                return StepResult::stack_overrun;
+            }
+            auto str = std::get_if<std::shared_ptr<std::string>>(&m.unsafe_top());
+            if (not str) {
+                return StepResult::mismatched_type;
+            }
+            (*str)->push_back(static_cast<char>(*c));
             return StepResult::ok;
         }
     }
 }
 
-void execute(GC& gc, AtomStorage& as, Machine& m) {
+static void execute(GC& gc, AtomStorage& as, Machine& m) {
     while (true) {
         StepResult sr = step(gc, as, m);
         if (sr == StepResult::halt) {
@@ -418,19 +423,6 @@ int main() {
     // auto a = as.register_("A");
 
     Machine m;
-
-    m.instruct(Mnemonic::push, Operand{OperandType::atom, AtomStorage::true_});
-    m.instruct(Mnemonic::call, Operand{OperandType::literal, 6});
-    m.instruct(Mnemonic::jf, Operand{OperandType::literal, 3});
-    m.instruct(Mnemonic::print, Operand{OperandType::atom, AtomStorage::true_});
-    m.instruct(Mnemonic::halt);
-    m.instruct(Mnemonic::print, Operand{OperandType::atom, AtomStorage::false_});
-    m.instruct(Mnemonic::halt);
-
-    // null
-    m.instruct(Mnemonic::push, Operand{OperandType::atom, AtomStorage::nil});
-    m.instruct(Mnemonic::eq);
-    m.instruct(Mnemonic::ret, Operand{OperandType::literal, 0});
 
     execute(gc, as, m);
 }
