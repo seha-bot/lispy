@@ -38,8 +38,11 @@ static Result<Token> next_token(std::string_view input) {
             case '"': {
                 input = input.substr(1);
                 auto it = std::ranges::find(input, '"');
+                if (it == input.end()) {
+                    return std::nullopt;
+                }
                 auto length = static_cast<std::size_t>(it - input.begin());
-                return std::make_pair(Token{input.substr(0, length), TokenType::string}, input.substr(length));
+                return std::make_pair(Token{input.substr(0, length), TokenType::string}, input.substr(length + 1));
             }
             default:
                 if (std::isdigit(input[0])) {
@@ -47,8 +50,9 @@ static Result<Token> next_token(std::string_view input) {
                     auto length = static_cast<std::size_t>(it - input.begin());
                     return std::make_pair(Token{input.substr(0, length), TokenType::number}, input.substr(length));
                 } else {
-                    auto it = std::ranges::find_if(
-                        input, [](char c) { return std::isspace(c) or c == '(' or c == ')' or c == '\''; });
+                    auto it = std::ranges::find_if(input, [](char c) {
+                        return std::isspace(c) or c == '(' or c == ')' or c == '\'' or c == ';' or c == '"';
+                    });
                     auto length = static_cast<std::size_t>(it - input.begin());
                     auto text = input.substr(0, length);
                     return std::make_pair(Token{text, TokenType::identifier}, input.substr(length));
@@ -109,9 +113,9 @@ static Result<std::unique_ptr<ast::Expr>> parse_expr(std::string_view input) {
             // TODO: what if the number doesn't fit
             std::int64_t v;
             std::from_chars(t.text.data(), t.text.data() + t.text.size(), v);
-            return std::make_pair(std::make_unique<ast::NumberLiteral>(v), input);
+            return std::make_pair(std::make_unique<ast::Number>(v), input);
         case TokenType::string:
-            return std::make_pair(std::make_unique<ast::StringLiteral>(std::string(t.text)), input);
+            return std::make_pair(std::make_unique<ast::String>(std::string(t.text)), input);
     }
 }
 

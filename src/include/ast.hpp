@@ -18,6 +18,7 @@ struct Expr {
     virtual ExprType type() const = 0;
 
     bool is_atom() const { return type() == ExprType::atom; }
+    bool is_number() const { return type() == ExprType::number; }
     bool is_list() const { return type() == ExprType::list; }
 };
 
@@ -30,8 +31,8 @@ struct Atom : Expr {
     std::string value;
 };
 
-struct NumberLiteral : Expr {
-    NumberLiteral(std::int64_t value) : value(value) {}
+struct Number : Expr {
+    Number(std::int64_t value) : value(value) {}
 
     std::string format() const override { return std::to_string(value); }
     ExprType type() const override { return ExprType::number; }
@@ -39,10 +40,10 @@ struct NumberLiteral : Expr {
     std::int64_t value;
 };
 
-struct StringLiteral : Expr {
-    StringLiteral(std::string value) : value(std::move(value)) {}
+struct String : Expr {
+    String(std::string value) : value(std::move(value)) {}
 
-    std::string format() const override { return "\"" + value + "\""; }
+    std::string format() const override { return '"' + value + '"'; }
     ExprType type() const override { return ExprType::string; }
 
     std::string value;
