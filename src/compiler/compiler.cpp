@@ -78,7 +78,7 @@ static CompilationResult compile_expr(std::vector<Line>& code, ast::Expr& expr, 
             code.push_back(Label{label_end});
             return CompilationResult::ok;
         } else if (callee == "print") {
-            code.push_back(Instruction{Mnemonic::print});
+            return compile_with_args(Mnemonic::print, 1);
         } else if (callee == "quote") {
             if (list.elements.size() != 2) {
                 return CompilationResult::incorrect_arity;
