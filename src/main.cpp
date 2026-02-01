@@ -5,6 +5,7 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "compiler/include/compiler.hpp"
 #include "parser/include/parser.hpp"
 
 extern "C" {
@@ -32,8 +33,25 @@ int main(int argc, char *argv[]) {
         return run_parser(buffer.str());
     }();
 
+    std::ofstream output("/home/seha/repos/lispy/out.txt");
+    if (not output) {
+        throw std::runtime_error("file something");
+    }
+    std::vector<Line> code;
     for (auto& x : program) {
         std::cout << x->format() << '\n';
+        try {
+            if (auto r = compile(code, *x); r != CompilationResult::ok) {
+                std::cerr << "[Error]\n";
+            }
+        } catch (std::runtime_error const& e) {
+            std::cerr << "[Error]: " << e.what() << '\n';
+            break;
+        }
+    }
+
+    for (auto& line : code) {
+        output << format_line(line) << '\n';
     }
 
     // using_history();

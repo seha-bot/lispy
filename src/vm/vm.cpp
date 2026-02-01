@@ -7,23 +7,7 @@
 #include <vector>
 
 #include "gc.hpp"
-
-enum class Mnemonic {
-    eq,
-    cons,
-    car,
-    cdr,
-    jt,
-    jf,
-    jmp,
-    push,
-    call,
-    pop,
-    ret,
-    set,
-    halt,
-    print,
-};
+#include "mnemonic.hpp"
 
 enum class OperandType {
     literal,
@@ -133,7 +117,6 @@ private:
 
 public:
     std::size_t ip = 0;
-    bool sf = false;
 };
 
 struct AtomStorage {
@@ -236,15 +219,15 @@ StepResult step(GC& gc, AtomStorage& as, Machine& m) {
             auto arg1 = m.unsafe_pop();
             auto arg2 = m.unsafe_pop();
             if (arg1.type != arg2.type) {
-                m.sf = false;
+                m.push(std::int64_t(0));
                 return StepResult::ok;
             }
             switch (arg1.type) {
                 case StackElement::Type::value:
-                    m.sf = arg1.value == arg2.value;
+                    m.push(arg1.value == arg2.value ? 1 : 0);
                     return StepResult::ok;
                 case StackElement::Type::object:
-                    m.sf = arg1.object == arg2.object && arg1.object->is_atom();
+                    m.push(arg1.object == arg2.object && arg1.object->is_atom() ? 1 : 0);
                     return StepResult::ok;
             }
         }
@@ -287,7 +270,16 @@ StepResult step(GC& gc, AtomStorage& as, Machine& m) {
             if (!offset) {
                 return offset.error();
             }
-            if (m.sf) {
+            if (not m.has(1)) {
+                return StepResult::stack_overrun;
+            }
+
+            auto b = m.unsafe_pop();
+            if (b.type != StackElement::Type::value) {
+                return StepResult::mismatched_type;
+            }
+
+            if (b.value) {
                 m.ip += static_cast<std::size_t>(*offset);
                 return StepResult::ok_do_not_increment_ip;
             }
@@ -298,7 +290,16 @@ StepResult step(GC& gc, AtomStorage& as, Machine& m) {
             if (!offset) {
                 return offset.error();
             }
-            if (not m.sf) {
+            if (not m.has(1)) {
+                return StepResult::stack_overrun;
+            }
+
+            auto b = m.unsafe_pop();
+            if (b.type != StackElement::Type::value) {
+                return StepResult::mismatched_type;
+            }
+
+            if (not b.value) {
                 m.ip += static_cast<std::size_t>(*offset);
                 return StepResult::ok_do_not_increment_ip;
             }
@@ -377,12 +378,16 @@ StepResult step(GC& gc, AtomStorage& as, Machine& m) {
         }
         case Mnemonic::halt:  // halt
             return StepResult::halt;
-        case Mnemonic::print: {  // print x
-            auto x = fetch_object(as, m, instruction.o1);
-            if (!x) {
-                return x.error();
+        case Mnemonic::print: {  // print
+            if (not m.has(1)) {
+                return StepResult::stack_overrun;
             }
-            std::cout << (*x)->format(as);
+            auto top = m.unsafe_seek(0);
+            if (top.type == StackElement::Type::value) {
+                std::cout << top.value;
+            } else {
+                std::cout << top.object->format(as);
+            }
             return StepResult::ok;
         }
     }
