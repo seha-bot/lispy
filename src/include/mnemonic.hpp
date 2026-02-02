@@ -11,12 +11,13 @@ enum class Mnemonic {
     jt,
     jf,
     jmp,
-    push,
     call,
+    indjmp,
+    indcall,
+    push,
     pop,
     ret,
     set,
-    halt,
     print,
     mkstr,
     strpush,
@@ -40,18 +41,20 @@ inline std::string to_string(Mnemonic m) {
             return "jf";
         case Mnemonic::jmp:
             return "jmp";
-        case Mnemonic::push:
-            return "push";
         case Mnemonic::call:
             return "call";
+        case Mnemonic::indjmp:
+            return "indjmp";
+        case Mnemonic::indcall:
+            return "indcall";
+        case Mnemonic::push:
+            return "push";
         case Mnemonic::pop:
             return "pop";
         case Mnemonic::ret:
             return "ret";
         case Mnemonic::set:
             return "set";
-        case Mnemonic::halt:
-            return "halt";
         case Mnemonic::print:
             return "print";
         case Mnemonic::mkstr:

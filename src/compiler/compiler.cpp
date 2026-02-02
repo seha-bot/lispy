@@ -208,7 +208,7 @@ static CompilationResult compile_expr(Env& env, std::vector<Entity>& entities, E
                                 // TODO: check duplicates
                                 entity.captures.insert(callee);
                             }
-                            entity.code.push_back(Instruction{Mnemonic::call, AtomOperand{callee, true}});
+                            entity.code.push_back(Instruction{Mnemonic::indcall, AtomOperand{callee, true}});
                         } else {
                             entity.code.push_back(Instruction{Mnemonic::call, LabelOperand{callee}});
                         }
@@ -226,7 +226,7 @@ static CompilationResult compile_expr(Env& env, std::vector<Entity>& entities, E
                     if (callee != CompilationResult::ok) {
                         return callee;
                     }
-                    entity.code.push_back(Instruction{Mnemonic::call, LiteralOperand{0, true}});
+                    entity.code.push_back(Instruction{Mnemonic::indcall, LiteralOperand{0, true}});
                     return CompilationResult::ok;
                 }
                 case ast::ExprType::number:

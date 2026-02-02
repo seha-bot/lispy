@@ -27,14 +27,14 @@ struct Machine {
     obj::Object& unsafe_top() { return unsafe_seek(0); }
 
     void push(obj::Object obj) { m_stack.push_back(obj); }
-    void push_call(std::size_t ip) { m_return_stack.push_back(ip); }
+    void push_call(InstrPtr ip) { m_return_stack.push_back(ip); }
 
     obj::Object unsafe_pop() {
         auto top = m_stack.back();
         m_stack.pop_back();
         return top;
     }
-    std::size_t unsafe_pop_call() {
+    InstrPtr unsafe_pop_call() {
         auto ip = m_return_stack.back();
         m_return_stack.pop_back();
         return ip;
@@ -43,49 +43,37 @@ struct Machine {
     bool has(std::int64_t n) const { return n <= static_cast<std::int64_t>(m_stack.size()); }
     std::size_t call_depth() const { return m_return_stack.size(); }
 
-    void instruct(Mnemonic mnemonic, Operand op1 = Operand{}, Operand op2 = Operand{}) {
-        m_instructions.emplace_back(mnemonic, op1, op2);
-    }
+    InstrPtr ip() const { return m_ip; }
+    void jump(InstrPtr ip) { m_ip = ip; }
 
     Instruction const *current() const {
-        if (ip >= m_instructions.size()) {
+        if (m_ip.value() >= m_instructions.size()) {
             return nullptr;
         }
-        return &m_instructions[ip];
+        return &m_instructions[m_ip.value()];
     }
 
 private:
     std::vector<obj::Object> m_stack;
-    std::vector<std::size_t> m_return_stack;
+    std::vector<InstrPtr> m_return_stack;
     std::vector<Instruction> m_instructions;
-
-public:
-    std::size_t ip = 0;
+    InstrPtr m_ip{0};
 };
 
 enum class StepResult {
-    ok,
-    ok_do_not_increment_ip,
     stack_overrun,
     call_stack_overrun,
     mismatched_type,
-    halt,
 };
 
 static std::string format_sr(StepResult sr) {
     switch (sr) {
-        case StepResult::ok:
-            return "ok";
-        case StepResult::ok_do_not_increment_ip:
-            return "ok_do_not_increment_ip";
         case StepResult::stack_overrun:
             return "stack_overrun";
         case StepResult::call_stack_overrun:
             return "call_stack_overrun";
         case StepResult::mismatched_type:
             return "mismatched_type";
-        case StepResult::halt:
-            return "halt";
     }
 }
 
@@ -112,116 +100,154 @@ static std::expected<std::int64_t, StepResult> fetch_literal(Operand op) {
 }
 
 // TODO: step should return the next ip wrapped in expected.
-static StepResult step(GC& gc, obj::NameManager& mgr, Machine& m) {
-    if (not m.current()) {
-        return StepResult::halt;
-    }
-    auto& instruction = *m.current();
-
+static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine& m, Instruction instruction) {
     switch (instruction.mnemonic) {
         case Mnemonic::eq: {  // eq
             if (not m.has(2)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
             auto arg1 = m.unsafe_pop();
             auto arg2 = m.unsafe_pop();
             m.push(obj::Number{arg1 == arg2});
-            return StepResult::ok;
+            return m.ip().next();
         }
         case Mnemonic::cons: {  // cons
             if (not m.has(2)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
             auto arg1 = m.unsafe_pop();
             auto arg2 = m.unsafe_top();
             m.unsafe_top() = obj::Cons::make(gc, arg1, arg2).get();
-            return StepResult::ok;
+            return m.ip().next();
         }
         case Mnemonic::car: {  // car
             if (not m.has(1)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
             auto arg1 = std::get_if<obj::DynObj *>(&m.unsafe_top());
             if (not arg1 or (*arg1)->type() != obj::DynObjType::cons) {
-                return StepResult::mismatched_type;
+                return std::unexpected(StepResult::mismatched_type);
             }
             m.unsafe_top() = static_cast<obj::Cons&>(**arg1).car();
-            return StepResult::ok;
+            return m.ip().next();
         }
         case Mnemonic::cdr: {  // cdr
             if (not m.has(1)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
             auto arg1 = std::get_if<obj::DynObj *>(&m.unsafe_top());
             if (not arg1 or (*arg1)->type() != obj::DynObjType::cons) {
-                return StepResult::mismatched_type;
+                return std::unexpected(StepResult::mismatched_type);
             }
             m.unsafe_top() = static_cast<obj::Cons&>(**arg1).cdr();
-            return StepResult::ok;
+            return m.ip().next();
         }
         case Mnemonic::jt: {  // jt offset
             auto offset = fetch_literal(instruction.o1);
             if (!offset) {
-                return offset.error();
+                return std::unexpected(offset.error());
             }
             if (not m.has(1)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
 
             auto cond_obj = m.unsafe_pop();
             auto cond = std::get_if<obj::Number>(&cond_obj);
             if (not cond) {
-                return StepResult::mismatched_type;
+                return std::unexpected(StepResult::mismatched_type);
             }
 
             if ((*cond).value) {
-                m.ip += static_cast<std::size_t>(*offset);
-                return StepResult::ok_do_not_increment_ip;
+                return m.ip().offset(*offset);
             }
-            return StepResult::ok;
+            return m.ip().next();
         }
         case Mnemonic::jf: {  // jf offset
             auto offset = fetch_literal(instruction.o1);
             if (!offset) {
-                return offset.error();
+                return std::unexpected(offset.error());
             }
             if (not m.has(1)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
 
             auto cond_obj = m.unsafe_pop();
             auto cond = std::get_if<obj::Number>(&cond_obj);
             if (not cond) {
-                return StepResult::mismatched_type;
+                return std::unexpected(StepResult::mismatched_type);
             }
 
             if (not(*cond).value) {
-                m.ip += static_cast<std::size_t>(*offset);
-                return StepResult::ok_do_not_increment_ip;
+                return m.ip().offset(*offset);
             }
-            return StepResult::ok;
+            return m.ip().next();
         }
-        case Mnemonic::jmp: {  // jmp x
+        case Mnemonic::jmp: {  // jmp offset
+            auto offset = fetch_literal(instruction.o1);
+            if (!offset) {
+                return std::unexpected(offset.error());
+            }
+            return m.ip().offset(*offset);
+        }
+        case Mnemonic::call: {  // call offset
+            auto offset = fetch_literal(instruction.o1);
+            if (!offset) {
+                return std::unexpected(offset.error());
+            }
+            m.push_call(m.ip().next());
+            return m.ip().offset(*offset);
+        }
+        case Mnemonic::indjmp: {  // indjmp x
             auto x = fetch_object(m, instruction.o1);
             if (!x) {
-                return x.error();
+                return std::unexpected(x.error());
             }
             struct Visitor {
-                auto operator()(obj::Atom) { return StepResult::mismatched_type; }
-                auto operator()(obj::Number ip) {
-                    m.ip = ip.value;
-                    return StepResult::ok_do_not_increment_ip;
+                std::expected<InstrPtr, StepResult> operator()(obj::Atom) {
+                    return std::unexpected(StepResult::mismatched_type);
                 }
-                auto operator()(obj::DynObj *obj) {
-                    if (obj->type() != obj::DynObjType::callable) {
-                        return StepResult::mismatched_type;
+                std::expected<InstrPtr, StepResult> operator()(obj::Number offset) {
+                    // TODO: ???
+                    return m.ip().offset(offset.value);
+                }
+                std::expected<InstrPtr, StepResult> operator()(obj::DynObj *obj) {
+                    if (obj->type() != obj::DynObjType::closure) {
+                        return std::unexpected(StepResult::mismatched_type);
                     }
-                    auto& callable = static_cast<obj::Callable&>(*obj);
-                    for (auto& capture : callable.captures()) {
+                    auto& closure = static_cast<obj::Closure&>(*obj);
+                    for (auto& capture : closure.captures()) {
                         m.push(capture);
                     }
-                    m.ip = callable.ip();
-                    return StepResult::ok_do_not_increment_ip;
+                    return closure.ip();
+                }
+                Machine& m;
+            };
+            return std::visit(Visitor{m}, *x);
+        }
+        case Mnemonic::indcall: {  // indcall x
+            auto x = fetch_object(m, instruction.o1);
+            if (!x) {
+                return std::unexpected(x.error());
+            }
+            struct Visitor {
+                std::expected<InstrPtr, StepResult> operator()(obj::Atom) {
+                    return std::unexpected(StepResult::mismatched_type);
+                }
+                std::expected<InstrPtr, StepResult> operator()(obj::Number offset) {
+                    m.push_call(m.ip().next());
+                    // TODO: ???
+                    return m.ip().offset(offset.value);
+                }
+                std::expected<InstrPtr, StepResult> operator()(obj::DynObj *obj) {
+                    if (obj->type() != obj::DynObjType::closure) {
+                        return std::unexpected(StepResult::mismatched_type);
+                    }
+                    auto& closure = static_cast<obj::Closure&>(*obj);
+                    for (auto& capture : closure.captures()) {
+                        m.push(capture);
+                    }
+                    m.push_call(m.ip().next());
+                    return closure.ip();
                 }
                 Machine& m;
             };
@@ -230,154 +256,123 @@ static StepResult step(GC& gc, obj::NameManager& mgr, Machine& m) {
         case Mnemonic::push: {  // push x
             auto x = fetch_object(m, instruction.o1);
             if (!x) {
-                return x.error();
+                return std::unexpected(x.error());
             }
             m.push(*x);
-            return StepResult::ok;
-        }
-        case Mnemonic::call: {  // call x
-            auto x = fetch_object(m, instruction.o1);
-            if (!x) {
-                return x.error();
-            }
-            struct Visitor {
-                auto operator()(obj::Atom) { return StepResult::mismatched_type; }
-                auto operator()(obj::Number ip) {
-                    m.push_call(m.ip + 1);
-                    m.ip = ip.value;
-                    return StepResult::ok_do_not_increment_ip;
-                }
-                auto operator()(obj::DynObj *obj) {
-                    if (obj->type() != obj::DynObjType::callable) {
-                        return StepResult::mismatched_type;
-                    }
-                    auto& callable = static_cast<obj::Callable&>(*obj);
-                    for (auto& capture : callable.captures()) {
-                        m.push(capture);
-                    }
-                    m.push_call(m.ip + 1);
-                    m.ip = callable.ip();
-                    return StepResult::ok_do_not_increment_ip;
-                }
-                Machine& m;
-            };
-            return std::visit(Visitor{m}, *x);
+            return m.ip().next();
         }
         case Mnemonic::pop: {  // pop n
             auto n = fetch_literal(instruction.o1);
             if (!n) {
-                return n.error();
+                return std::unexpected(n.error());
             }
             if (*n < 0 or not m.has(*n)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
             for (std::int64_t i = 0; i < *n; ++i) {
                 m.unsafe_pop();
             }
-            return StepResult::ok;
+            return m.ip().next();
         }
         case Mnemonic::ret: {  // ret n
             auto n = fetch_literal(instruction.o1);
             if (!n) {
-                return n.error();
+                return std::unexpected(n.error());
             }
             if (*n < 0 or not m.has(*n)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
             if (m.call_depth() == 0) {
-                return StepResult::call_stack_overrun;
+                return std::unexpected(StepResult::call_stack_overrun);
             }
 
             for (std::int64_t i = 0; i < *n; ++i) {
                 m.unsafe_pop();
             }
-            m.ip = m.unsafe_pop_call();
-            return StepResult::ok_do_not_increment_ip;
+            return m.unsafe_pop_call();
         }
         case Mnemonic::set: {  // set i src
             auto i = fetch_literal(instruction.o1);
             if (!i) {
-                return i.error();
+                return std::unexpected(i.error());
             }
             if (*i < 0 or not m.has(*i + 1)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
             auto src = fetch_object(m, instruction.o2);
             if (!src) {
-                return src.error();
+                return std::unexpected(src.error());
             }
             m.unsafe_seek(static_cast<std::size_t>(*i)) = *src;
-            return StepResult::ok;
+            return m.ip().next();
         }
-        case Mnemonic::halt:  // halt
-            return StepResult::halt;
         case Mnemonic::print: {  // print
             if (not m.has(1)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
             obj::format_to(std::cout, mgr, m.unsafe_top());
-            return StepResult::ok;
+            return m.ip().next();
         }
         case Mnemonic::mkstr: {  // mkstr
             m.push(obj::String::make(gc, "").get());
-            return StepResult::ok;
+            return m.ip().next();
         }
         case Mnemonic::strpush: {  // strpush c
             auto c = fetch_literal(instruction.o1);
             if (not c) {
-                return c.error();
+                return std::unexpected(c.error());
             }
             if (not m.has(1)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
             auto str = std::get_if<obj::DynObj *>(&m.unsafe_top());
             if (not str or (*str)->type() != obj::DynObjType::string) {
-                return StepResult::mismatched_type;
+                return std::unexpected(StepResult::mismatched_type);
             }
             static_cast<obj::String&>(**str).push(static_cast<char>(*c));
-            return StepResult::ok;
+            return m.ip().next();
         }
         case Mnemonic::closure: {  // closure ip
             auto ip = fetch_literal(instruction.o1);
             if (not ip) {
-                return ip.error();
+                return std::unexpected(ip.error());
             }
-            // TODO: fix this (and others) unsafe implicit conversion
-            std::size_t warning = *ip;
-            m.push(obj::Callable::make(gc, warning).get());
-            return StepResult::ok;
+            if (*ip < 0) {
+                throw "unimplemented";
+            }
+            m.push(obj::Closure::make(gc, InstrPtr(static_cast<std::size_t>(*ip))).get());
+            return m.ip().next();
         }
         case Mnemonic::capture: {  // capture x
             auto x = fetch_object(m, instruction.o1);
             if (!x) {
-                return x.error();
+                return std::unexpected(x.error());
             }
             if (not m.has(1)) {
-                return StepResult::stack_overrun;
+                return std::unexpected(StepResult::stack_overrun);
             }
             auto obj = std::get_if<obj::DynObj *>(&m.unsafe_top());
-            if (not obj or (*obj)->type() != obj::DynObjType::callable) {
-                return StepResult::mismatched_type;
+            if (not obj or (*obj)->type() != obj::DynObjType::closure) {
+                return std::unexpected(StepResult::mismatched_type);
             }
-            static_cast<obj::Callable&>(**obj).capture(*x);
-            return StepResult::ok;
+            static_cast<obj::Closure&>(**obj).capture(*x);
+            return m.ip().next();
         }
     }
 }
 
 static void execute(GC& gc, obj::NameManager& mgr, Machine& m) {
     while (true) {
-        StepResult sr = step(gc, mgr, m);
-        if (sr == StepResult::halt) {
+        auto instruction = m.current();
+        if (not instruction) {
             break;
         }
-        if (sr != StepResult::ok and sr != StepResult::ok_do_not_increment_ip) {
-            std::cout << "[Error] at " << m.ip << ": " << format_sr(sr) << '\n';
-            break;
+
+        auto ip = step(gc, mgr, m, *instruction);
+        if (not ip) {
+            std::cout << "[Error] at " << m.ip().value() << ": " << format_sr(ip.error()) << '\n';
         }
-        if (sr != StepResult::ok_do_not_increment_ip) {
-            m.ip += 1;
-        }
+        m.jump(*ip);
     }
 }
 

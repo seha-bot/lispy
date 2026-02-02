@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "gc.hpp"
+#include "instr_ptr.hpp"
 
 namespace obj {
 
@@ -47,7 +48,7 @@ private:
 void format_to(std::ostream& os, NameManager& mgr, Object obj);
 
 enum class DynObjType {
-    callable,
+    closure,
     cons,
     string,
 };
@@ -57,21 +58,21 @@ struct DynObj : GC::Node {
     virtual void format_to(std::ostream& os, NameManager& mgr) const = 0;
 };
 
-struct Callable : DynObj, GC::Managed<Callable> {
-    DynObjType type() const override { return DynObjType::callable; }
-    void format_to(std::ostream& os, NameManager&) const override { os << "<callable>"; }
+struct Closure : DynObj, GC::Managed<Closure> {
+    DynObjType type() const override { return DynObjType::closure; }
+    void format_to(std::ostream& os, NameManager&) const override { os << "<closure>"; }
 
     std::vector<Object> const& captures() const { return m_captures; }
-    std::size_t ip() const { return m_ip; }
+    InstrPtr ip() const { return m_ip; }
 
     void capture(Object obj) { return m_captures.push_back(obj); }
 
 private:
-    friend GC::Managed<Callable>;
-    Callable(std::size_t ip) : m_ip(ip) {}
+    friend GC::Managed<Closure>;
+    Closure(InstrPtr ip) : m_ip(ip) {}
 
     std::vector<Object> m_captures;
-    std::size_t m_ip;
+    InstrPtr m_ip;
 };
 
 struct Cons : DynObj, GC::Managed<Cons> {
