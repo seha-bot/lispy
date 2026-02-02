@@ -209,7 +209,7 @@ static StepResult step(GC& gc, obj::NameManager& mgr, Machine& m) {
             struct Visitor {
                 auto operator()(obj::Atom) { return StepResult::mismatched_type; }
                 auto operator()(obj::Number ip) {
-                    m.ip = static_cast<std::size_t>(ip.value);
+                    m.ip = ip.value;
                     return StepResult::ok_do_not_increment_ip;
                 }
                 auto operator()(obj::DynObj *obj) {
@@ -244,7 +244,7 @@ static StepResult step(GC& gc, obj::NameManager& mgr, Machine& m) {
                 auto operator()(obj::Atom) { return StepResult::mismatched_type; }
                 auto operator()(obj::Number ip) {
                     m.push_call(m.ip + 1);
-                    m.ip = static_cast<std::size_t>(ip.value);
+                    m.ip = ip.value;
                     return StepResult::ok_do_not_increment_ip;
                 }
                 auto operator()(obj::DynObj *obj) {
@@ -335,6 +335,31 @@ static StepResult step(GC& gc, obj::NameManager& mgr, Machine& m) {
                 return StepResult::mismatched_type;
             }
             static_cast<obj::String&>(**str).push(static_cast<char>(*c));
+            return StepResult::ok;
+        }
+        case Mnemonic::lambda: {  // lambda ip
+            auto ip = fetch_literal(instruction.o1);
+            if (not ip) {
+                return ip.error();
+            }
+            // TODO: fix this (and others) unsafe implicit conversion
+            std::size_t warning = *ip;
+            m.push(obj::Callable::make(gc, warning).get());
+            return StepResult::ok;
+        }
+        case Mnemonic::capture: {  // capture x
+            auto x = fetch_object(m, instruction.o1);
+            if (!x) {
+                return x.error();
+            }
+            if (not m.has(1)) {
+                return StepResult::stack_overrun;
+            }
+            auto obj = std::get_if<obj::DynObj *>(&m.unsafe_top());
+            if (not obj or (*obj)->type() != obj::DynObjType::callable) {
+                return StepResult::mismatched_type;
+            }
+            static_cast<obj::Callable&>(**obj).capture(*x);
             return StepResult::ok;
         }
     }

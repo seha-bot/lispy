@@ -64,9 +64,12 @@ struct Callable : DynObj, GC::Managed<Callable> {
     std::vector<Object> const& captures() const { return m_captures; }
     std::size_t ip() const { return m_ip; }
 
+    void capture(Object obj) { return m_captures.push_back(obj); }
+
 private:
     friend GC::Managed<Callable>;
-    Callable(std::vector<Object> captures, std::size_t ip) : m_captures(std::move(captures)), m_ip(ip) {}
+    Callable(std::size_t ip) : m_ip(ip) {}
+
     std::vector<Object> m_captures;
     std::size_t m_ip;
 };
@@ -107,6 +110,7 @@ private:
             depend_on(*obj);
         }
     }
+
     Object m_car, m_cdr;
 };
 
@@ -121,6 +125,7 @@ struct String : DynObj, GC::Managed<String> {
 private:
     friend GC::Managed<String>;
     String(std::string value) : m_value(std::move(value)) {}
+
     std::string m_value;
 };
 
