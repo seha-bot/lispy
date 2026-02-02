@@ -37,10 +37,15 @@ struct Instruction {
 
 struct Label {
     std::string name;
-    std::vector<std::string> parameters{};
 };
 
 using Line = std::variant<Instruction, Label>;
+
+struct Entity {
+    std::string name;
+    std::vector<std::string> parameters;
+    std::vector<Line> code;
+};
 
 enum class CompilationResult {
     ok,
@@ -51,7 +56,7 @@ enum class CompilationResult {
     incorrect_arity,
 };
 
-CompilationResult compile(std::vector<Line>& code, ast::Expr& expr);
-std::string format_line(Line const& line);
+CompilationResult compile(std::vector<Entity>& entities, ast::Expr& expr);
+std::string format_entity(Entity const& entity);
 
 #endif

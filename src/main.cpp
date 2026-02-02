@@ -37,11 +37,11 @@ int main(int argc, char *argv[]) {
     if (not output) {
         throw std::runtime_error("file something");
     }
-    std::vector<Line> code;
+    std::vector<Entity> entities;
     for (auto& x : program) {
         std::cout << x->format() << '\n';
         try {
-            if (auto r = compile(code, *x); r != CompilationResult::ok) {
+            if (auto r = compile(entities, *x); r != CompilationResult::ok) {
                 std::cerr << "[Error]\n";
             }
         } catch (std::runtime_error const& e) {
@@ -50,8 +50,10 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    for (auto& line : code) {
-        output << format_line(line) << '\n';
+    // This will print 2 trailing newlines because format_entity
+    // ends with a newline, but this doesn't matter really.
+    for (auto& entity : entities) {
+        output << format_entity(entity) << '\n';
     }
 
     // using_history();

@@ -34,30 +34,30 @@ static CompilationResult compile_quote(std::vector<Line>& code, ast::Expr& expr)
     }
 }
 
-static CompilationResult compile_expr(std::vector<Line>& code, ast::Expr& expr, int& label_cnt) {
+static CompilationResult compile_expr(std::vector<Entity>& entities, Entity& entity, ast::Expr& expr, int& label_cnt) {
     switch (expr.type()) {
         case ast::ExprType::atom: {
             auto& atom = static_cast<ast::Atom&>(expr);
-            code.push_back(Instruction{Mnemonic::push, AtomOperand{atom.value, true}});
+            entity.code.push_back(Instruction{Mnemonic::push, AtomOperand{atom.value, true}});
             return CompilationResult::ok;
         }
         case ast::ExprType::number: {
             auto& number = static_cast<ast::Number&>(expr);
-            code.push_back(Instruction{Mnemonic::push, LiteralOperand{number.value}});
+            entity.code.push_back(Instruction{Mnemonic::push, LiteralOperand{number.value}});
             return CompilationResult::ok;
         }
         case ast::ExprType::string: {
             auto& string = static_cast<ast::String&>(expr).value;
-            code.push_back(Instruction{Mnemonic::mkstr});
+            entity.code.push_back(Instruction{Mnemonic::mkstr});
             for (char c : string) {
-                code.push_back(Instruction{Mnemonic::strpush, CharOperand{c}});
+                entity.code.push_back(Instruction{Mnemonic::strpush, CharOperand{c}});
             }
             return CompilationResult::ok;
         }
         case ast::ExprType::list: {
             auto& list = static_cast<ast::List&>(expr);
             if (list.elements.empty()) {
-                code.push_back(Instruction{Mnemonic::push, AtomOperand{"NIL"}});
+                entity.code.push_back(Instruction{Mnemonic::push, AtomOperand{"NIL"}});
                 return CompilationResult::ok;
             }
 
@@ -73,12 +73,12 @@ static CompilationResult compile_expr(std::vector<Line>& code, ast::Expr& expr, 
                     return CompilationResult::incorrect_arity;
                 }
                 for (std::size_t i = 0; i < n; i++) {
-                    auto arg = compile_expr(code, *list.elements[i + 1], label_cnt);
+                    auto arg = compile_expr(entities, entity, *list.elements[i + 1], label_cnt);
                     if (arg != CompilationResult::ok) {
                         return arg;
                     }
                 }
-                code.push_back(Instruction{m});
+                entity.code.push_back(Instruction{m});
                 return CompilationResult::ok;
             };
 
@@ -94,21 +94,24 @@ static CompilationResult compile_expr(std::vector<Line>& code, ast::Expr& expr, 
                 if (list.elements.size() != 4) {
                     return CompilationResult::incorrect_arity;
                 }
-                if (auto cond = compile_expr(code, *list.elements[1], label_cnt); cond != CompilationResult::ok) {
+                if (auto cond = compile_expr(entities, entity, *list.elements[1], label_cnt);
+                    cond != CompilationResult::ok) {
                     return cond;
                 }
                 auto label_false = ".L" + std::to_string(label_cnt++);
-                code.push_back(Instruction{Mnemonic::jf, LabelOperand{label_false}});
-                if (auto then = compile_expr(code, *list.elements[2], label_cnt); then != CompilationResult::ok) {
+                entity.code.push_back(Instruction{Mnemonic::jf, LabelOperand{label_false}});
+                if (auto then = compile_expr(entities, entity, *list.elements[2], label_cnt);
+                    then != CompilationResult::ok) {
                     return then;
                 }
                 auto label_end = ".L" + std::to_string(label_cnt++);
-                code.push_back(Instruction{Mnemonic::jmp, LabelOperand{label_end}});
-                code.push_back(Label{std::move(label_false)});
-                if (auto else_ = compile_expr(code, *list.elements[3], label_cnt); else_ != CompilationResult::ok) {
+                entity.code.push_back(Instruction{Mnemonic::jmp, LabelOperand{label_end}});
+                entity.code.push_back(Label{std::move(label_false)});
+                if (auto else_ = compile_expr(entities, entity, *list.elements[3], label_cnt);
+                    else_ != CompilationResult::ok) {
                     return else_;
                 }
-                code.push_back(Label{label_end});
+                entity.code.push_back(Label{label_end});
                 return CompilationResult::ok;
             } else if (callee == "print") {
                 return compile_with_args(Mnemonic::print, 1);
@@ -116,33 +119,20 @@ static CompilationResult compile_expr(std::vector<Line>& code, ast::Expr& expr, 
                 if (list.elements.size() != 2) {
                     return CompilationResult::incorrect_arity;
                 }
-                return compile_quote(code, *list.elements[1]);
+                return compile_quote(entity.code, *list.elements[1]);
             } else {
-                bool is_local = false;
-                // TODO: replace this with a new parameter for the compiler which holds local names.
-                auto it = std::find_if(code.rbegin(), code.rend(), [](Line const& l) {
-                    if (auto *label = std::get_if<Label>(&l)) {
-                        return not label->parameters.empty();
-                    }
-                    return false;
-                });
-                if (it != code.rend()) {
-                    auto& label = *std::get_if<Label>(&*it);
-                    if (std::ranges::find(label.parameters, callee) != label.parameters.end()) {
-                        is_local = true;
-                    }
-                }
-
                 for (std::size_t i = 1; i < list.elements.size(); i++) {
-                    auto arg = compile_expr(code, *list.elements[i], label_cnt);
+                    auto arg = compile_expr(entities, entity, *list.elements[i], label_cnt);
                     if (arg != CompilationResult::ok) {
                         return arg;
                     }
                 }
+
+                bool is_local = std::ranges::find(entity.parameters, callee) != entity.parameters.end();
                 if (is_local) {
-                    code.push_back(Instruction{Mnemonic::call, AtomOperand{callee, true}});
+                    entity.code.push_back(Instruction{Mnemonic::call, AtomOperand{callee, true}});
                 } else {
-                    code.push_back(Instruction{Mnemonic::call, LabelOperand{callee}});
+                    entity.code.push_back(Instruction{Mnemonic::call, LabelOperand{callee}});
                 }
                 return CompilationResult::ok;
             }
@@ -150,7 +140,7 @@ static CompilationResult compile_expr(std::vector<Line>& code, ast::Expr& expr, 
     }
 }
 
-static CompilationResult compile_define(std::vector<Line>& code, ast::List& list) {
+static CompilationResult compile_define(std::vector<Entity>& entities, ast::List& list) {
     if (list.elements.size() < 3) {
         return CompilationResult::incorrect_arity;
     }
@@ -176,35 +166,36 @@ static CompilationResult compile_define(std::vector<Line>& code, ast::List& list
 
             auto unsafe_atom_name = [](ast::Expr& expr) { return static_cast<ast::Atom const&>(expr).value; };
 
-            Label l{.name = unsafe_atom_name(*params.elements[0])};
+            Entity entity{unsafe_atom_name(*params.elements[0])};
             for (std::size_t i = 1; i < params.elements.size(); ++i) {
-                l.parameters.push_back(unsafe_atom_name(*params.elements[i]));
+                entity.parameters.push_back(unsafe_atom_name(*params.elements[i]));
             }
-            code.push_back(l);
 
             int label_cnt = 0;
             for (std::size_t i = 2; i < list.elements.size(); ++i) {
-                auto res = compile_expr(code, *list.elements[i], label_cnt);
+                auto res = compile_expr(entities, entity, *list.elements[i], label_cnt);
                 if (res != CompilationResult::ok) {
                     return res;
                 }
                 if (i != list.elements.size() - 1) {
-                    code.push_back(Instruction{Mnemonic::pop, LiteralOperand{1}});
+                    entity.code.push_back(Instruction{Mnemonic::pop, LiteralOperand{1}});
                 }
             }
             if (params.elements.size() == 1) {
-                code.push_back(Instruction{Mnemonic::ret, LiteralOperand{0}});
+                entity.code.push_back(Instruction{Mnemonic::ret, LiteralOperand{0}});
             } else {
                 auto n_params = static_cast<std::int64_t>(params.elements.size() - 1);
-                code.push_back(Instruction{Mnemonic::set, LiteralOperand{n_params}, LiteralOperand{0, true}});
-                code.push_back(Instruction{Mnemonic::ret, LiteralOperand{n_params}});
+                entity.code.push_back(Instruction{Mnemonic::set, LiteralOperand{n_params}, LiteralOperand{0, true}});
+                entity.code.push_back(Instruction{Mnemonic::ret, LiteralOperand{n_params}});
             }
+
+            entities.push_back(std::move(entity));
             return CompilationResult::ok;
         }
     }
 }
 
-CompilationResult compile(std::vector<Line>& code, ast::Expr& expr) {
+CompilationResult compile(std::vector<Entity>& entities, ast::Expr& expr) {
     switch (expr.type()) {
         case ast::ExprType::atom:
             todo();
@@ -226,7 +217,7 @@ CompilationResult compile(std::vector<Line>& code, ast::Expr& expr) {
             auto& function = static_cast<ast::Atom&>(function_expr);
 
             if (function.value == "define") {
-                return compile_define(code, list);
+                return compile_define(entities, list);
             }
 
             todo();
@@ -256,7 +247,7 @@ static std::string to_string(Operand const& o) {
     return std::visit([](auto&& x) { return to_string(x); }, o);
 }
 
-std::string format_line(Line const& line) {
+static std::string format_line(Line const& line) {
     struct Visitor {
         auto operator()(Instruction i) {
             auto r = '\t' + to_string(i.mnemonic);
@@ -268,13 +259,19 @@ std::string format_line(Line const& line) {
             }
             return r;
         }
-        auto operator()(Label label) {
-            auto r = label.name;
-            for (auto& p : label.parameters) {
-                r += ' ' + p;
-            }
-            return r + ':';
-        }
+        auto operator()(Label label) { return label.name; }
     };
     return std::visit(Visitor{}, line);
+}
+
+std::string format_entity(Entity const& entity) {
+    auto r = entity.name;
+    for (auto& p : entity.parameters) {
+        r += ' ' + p;
+    }
+    r += ":\n";
+    for (auto& line : entity.code) {
+        r += format_line(line) + '\n';
+    }
+    return r;
 }
