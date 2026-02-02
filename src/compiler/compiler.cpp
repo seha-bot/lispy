@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <stdexcept>
+#include <unordered_set>
 #include <utility>
 
 #include "ast.hpp"
@@ -16,11 +17,7 @@ static CompilationResult compile_quote(std::vector<Line>& code, ast::Expr& expr)
             code.push_back(Instruction{Mnemonic::push, AtomOperand{atom.value}});
             return CompilationResult::ok;
         }
-        case ast::ExprType::number:
-            todo();
-        case ast::ExprType::string:
-            todo();
-        case ast::ExprType::list:
+        case ast::ExprType::list: {
             auto& list = static_cast<ast::List&>(expr).elements;
             code.push_back(Instruction{Mnemonic::push, AtomOperand{"NIL"}});
             for (auto it = list.rbegin(); it != list.rend(); ++it) {
@@ -31,15 +28,212 @@ static CompilationResult compile_quote(std::vector<Line>& code, ast::Expr& expr)
                 code.push_back(Instruction{Mnemonic::cons});
             }
             return CompilationResult::ok;
+        }
+        case ast::ExprType::number: {
+            auto& number = static_cast<ast::Number&>(expr);
+            code.push_back(Instruction{Mnemonic::push, LiteralOperand{number.value}});
+            return CompilationResult::ok;
+        }
+        case ast::ExprType::string:
+            todo();
     }
 }
 
-static CompilationResult compile_expr(std::vector<Entity>& entities, Entity& entity, ast::Expr& expr, int& label_cnt) {
+struct Env {
+    std::unordered_set<std::string> locals;
+    int lambda_cnt;
+    int label_cnt;
+};
+
+static CompilationResult compile_expr(Env& env, std::vector<Entity>& entities, Entity& entity, ast::Expr& expr) {
     switch (expr.type()) {
         case ast::ExprType::atom: {
             auto& atom = static_cast<ast::Atom&>(expr);
-            entity.code.push_back(Instruction{Mnemonic::push, AtomOperand{atom.value, true}});
+            if (env.locals.contains(atom.value)) {
+                if (not entity.parameters.contains(atom.value)) {
+                    // TODO: check duplicates
+                    entity.captures.insert(atom.value);
+                }
+                entity.code.push_back(Instruction{Mnemonic::push, AtomOperand{atom.value, true}});
+            } else {
+                entity.code.push_back(Instruction{Mnemonic::push, LabelOperand{atom.value}});
+            }
             return CompilationResult::ok;
+        }
+        case ast::ExprType::list: {
+            auto& list = static_cast<ast::List&>(expr);
+            if (list.elements.empty()) {
+                entity.code.push_back(Instruction{Mnemonic::push, AtomOperand{"NIL"}});
+                return CompilationResult::ok;
+            }
+
+            switch (list.elements[0]->type()) {
+                case ast::ExprType::atom: {
+                    auto& callee = static_cast<ast::Atom&>(*list.elements[0]).value;
+
+                    auto compile_with_args = [&](Mnemonic m, std::size_t n) {
+                        // TODO: arity check should be an ICE at this point.
+                        // This needs to be moved to a static check step at the AST level.
+                        if (list.elements.size() != n + 1) {
+                            return CompilationResult::incorrect_arity;
+                        }
+                        for (std::size_t i = 0; i < n; i++) {
+                            auto arg = compile_expr(env, entities, entity, *list.elements[i + 1]);
+                            if (arg != CompilationResult::ok) {
+                                return arg;
+                            }
+                        }
+                        entity.code.push_back(Instruction{m});
+                        return CompilationResult::ok;
+                    };
+
+                    if (callee == "eq") {
+                        return compile_with_args(Mnemonic::eq, 2);
+                    } else if (callee == "cons") {
+                        return compile_with_args(Mnemonic::cons, 2);
+                    } else if (callee == "car") {
+                        return compile_with_args(Mnemonic::car, 1);
+                    } else if (callee == "cdr") {
+                        return compile_with_args(Mnemonic::cdr, 1);
+                    } else if (callee == "if") {
+                        if (list.elements.size() != 4) {
+                            return CompilationResult::incorrect_arity;
+                        }
+
+                        if (auto cond = compile_expr(env, entities, entity, *list.elements[1]);
+                            cond != CompilationResult::ok) {
+                            return cond;
+                        }
+                        auto label_false = ".L" + std::to_string(env.label_cnt++);
+                        entity.code.push_back(Instruction{Mnemonic::jf, LabelOperand{label_false}});
+                        if (auto then = compile_expr(env, entities, entity, *list.elements[2]);
+                            then != CompilationResult::ok) {
+                            return then;
+                        }
+                        auto label_end = ".L" + std::to_string(env.label_cnt++);
+                        entity.code.push_back(Instruction{Mnemonic::jmp, LabelOperand{label_end}});
+                        entity.code.push_back(Label{std::move(label_false)});
+                        if (auto else_ = compile_expr(env, entities, entity, *list.elements[3]);
+                            else_ != CompilationResult::ok) {
+                            return else_;
+                        }
+                        entity.code.push_back(Label{label_end});
+                        return CompilationResult::ok;
+                    } else if (callee == "print") {
+                        return compile_with_args(Mnemonic::print, 1);
+                    } else if (callee == "quote") {
+                        if (list.elements.size() != 2) {
+                            return CompilationResult::incorrect_arity;
+                        }
+                        return compile_quote(entity.code, *list.elements[1]);
+                    } else if (callee == "lambda") {
+                        if (list.elements.size() < 3) {
+                            return CompilationResult::incorrect_arity;
+                        }
+
+                        auto& params_expr = *list.elements[1];
+                        if (params_expr.type() != ast::ExprType::list) {
+                            return CompilationResult::parameters_not_well_formed;
+                        }
+                        auto& params = static_cast<ast::List&>(params_expr);
+                        for (auto& param : params.elements) {
+                            if (not param->is_atom()) {
+                                return CompilationResult::parameters_not_well_formed;
+                            }
+                        }
+
+                        auto unsafe_atom_name = [](ast::Expr& expr) {
+                            return static_cast<ast::Atom const&>(expr).value;
+                        };
+
+                        Entity lambda{"lam" + std::to_string(env.lambda_cnt++), true};
+                        for (auto& param : params.elements) {
+                            // TODO: check duplicates on both
+                            env.locals.insert(unsafe_atom_name(*param));
+                            lambda.parameters.insert(unsafe_atom_name(*param));
+                        }
+
+                        for (std::size_t i = 2; i < list.elements.size(); ++i) {
+                            auto res = compile_expr(env, entities, lambda, *list.elements[i]);
+                            if (res != CompilationResult::ok) {
+                                return res;
+                            }
+                            if (i != list.elements.size() - 1) {
+                                lambda.code.push_back(Instruction{Mnemonic::pop, LiteralOperand{1}});
+                            }
+                        }
+
+                        for (auto& param : params.elements) {
+                            env.locals.erase(unsafe_atom_name(*param));
+                        }
+
+                        if (params.elements.size() + lambda.captures.size() == 0) {
+                            lambda.code.push_back(Instruction{Mnemonic::ret, LiteralOperand{0}});
+                        } else {
+                            auto n_elements =
+                                static_cast<std::int64_t>(params.elements.size() + lambda.captures.size());
+                            lambda.code.push_back(
+                                Instruction{Mnemonic::set, LiteralOperand{n_elements}, LiteralOperand{0, true}});
+                            lambda.code.push_back(Instruction{Mnemonic::ret, LiteralOperand{n_elements}});
+                        }
+
+                        if (lambda.captures.empty()) {
+                            entity.code.push_back(Instruction{Mnemonic::push, LabelOperand{lambda.name}});
+                        } else {
+                            entity.code.push_back(Instruction{Mnemonic::closure, LabelOperand{lambda.name}});
+                            for (auto& capture : lambda.captures) {
+                                if (not entity.parameters.contains(capture)) {
+                                    // TODO: check duplicates
+                                    entity.captures.insert(capture);
+                                }
+                                entity.code.push_back(Instruction{Mnemonic::capture, AtomOperand{capture, true}});
+                            }
+                        }
+
+                        entities.push_back(std::move(lambda));
+
+                        return CompilationResult::ok;
+
+                    } else {
+                        for (std::size_t i = 1; i < list.elements.size(); i++) {
+                            auto arg = compile_expr(env, entities, entity, *list.elements[i]);
+                            if (arg != CompilationResult::ok) {
+                                return arg;
+                            }
+                        }
+
+                        bool is_local = std::ranges::find(entity.parameters, callee) != entity.parameters.end();
+                        if (is_local) {
+                            if (not entity.parameters.contains(callee)) {
+                                // TODO: check duplicates
+                                entity.captures.insert(callee);
+                            }
+                            entity.code.push_back(Instruction{Mnemonic::call, AtomOperand{callee, true}});
+                        } else {
+                            entity.code.push_back(Instruction{Mnemonic::call, LabelOperand{callee}});
+                        }
+                        return CompilationResult::ok;
+                    }
+                }
+                case ast::ExprType::list: {
+                    for (std::size_t i = 1; i < list.elements.size(); i++) {
+                        auto arg = compile_expr(env, entities, entity, *list.elements[i]);
+                        if (arg != CompilationResult::ok) {
+                            return arg;
+                        }
+                    }
+                    auto callee = compile_expr(env, entities, entity, *list.elements[0]);
+                    if (callee != CompilationResult::ok) {
+                        return callee;
+                    }
+                    entity.code.push_back(Instruction{Mnemonic::call, LiteralOperand{0, true}});
+                    return CompilationResult::ok;
+                }
+                case ast::ExprType::number:
+                    todo();
+                case ast::ExprType::string:
+                    todo();
+            }
         }
         case ast::ExprType::number: {
             auto& number = static_cast<ast::Number&>(expr);
@@ -54,89 +248,6 @@ static CompilationResult compile_expr(std::vector<Entity>& entities, Entity& ent
             }
             return CompilationResult::ok;
         }
-        case ast::ExprType::list: {
-            auto& list = static_cast<ast::List&>(expr);
-            if (list.elements.empty()) {
-                entity.code.push_back(Instruction{Mnemonic::push, AtomOperand{"NIL"}});
-                return CompilationResult::ok;
-            }
-
-            if (not list.elements[0]->is_atom()) {
-                return CompilationResult::calling_nonatom;
-            }
-            auto& callee = static_cast<ast::Atom&>(*list.elements[0]).value;
-
-            auto compile_with_args = [&](Mnemonic m, std::size_t n) {
-                // TODO: arity check should be an ICE at this point.
-                // This needs to be moved to a static check step at the AST level.
-                if (list.elements.size() != n + 1) {
-                    return CompilationResult::incorrect_arity;
-                }
-                for (std::size_t i = 0; i < n; i++) {
-                    auto arg = compile_expr(entities, entity, *list.elements[i + 1], label_cnt);
-                    if (arg != CompilationResult::ok) {
-                        return arg;
-                    }
-                }
-                entity.code.push_back(Instruction{m});
-                return CompilationResult::ok;
-            };
-
-            if (callee == "eq") {
-                return compile_with_args(Mnemonic::eq, 2);
-            } else if (callee == "cons") {
-                return compile_with_args(Mnemonic::cons, 2);
-            } else if (callee == "car") {
-                return compile_with_args(Mnemonic::car, 1);
-            } else if (callee == "cdr") {
-                return compile_with_args(Mnemonic::cdr, 1);
-            } else if (callee == "if") {
-                if (list.elements.size() != 4) {
-                    return CompilationResult::incorrect_arity;
-                }
-                if (auto cond = compile_expr(entities, entity, *list.elements[1], label_cnt);
-                    cond != CompilationResult::ok) {
-                    return cond;
-                }
-                auto label_false = ".L" + std::to_string(label_cnt++);
-                entity.code.push_back(Instruction{Mnemonic::jf, LabelOperand{label_false}});
-                if (auto then = compile_expr(entities, entity, *list.elements[2], label_cnt);
-                    then != CompilationResult::ok) {
-                    return then;
-                }
-                auto label_end = ".L" + std::to_string(label_cnt++);
-                entity.code.push_back(Instruction{Mnemonic::jmp, LabelOperand{label_end}});
-                entity.code.push_back(Label{std::move(label_false)});
-                if (auto else_ = compile_expr(entities, entity, *list.elements[3], label_cnt);
-                    else_ != CompilationResult::ok) {
-                    return else_;
-                }
-                entity.code.push_back(Label{label_end});
-                return CompilationResult::ok;
-            } else if (callee == "print") {
-                return compile_with_args(Mnemonic::print, 1);
-            } else if (callee == "quote") {
-                if (list.elements.size() != 2) {
-                    return CompilationResult::incorrect_arity;
-                }
-                return compile_quote(entity.code, *list.elements[1]);
-            } else {
-                for (std::size_t i = 1; i < list.elements.size(); i++) {
-                    auto arg = compile_expr(entities, entity, *list.elements[i], label_cnt);
-                    if (arg != CompilationResult::ok) {
-                        return arg;
-                    }
-                }
-
-                bool is_local = std::ranges::find(entity.parameters, callee) != entity.parameters.end();
-                if (is_local) {
-                    entity.code.push_back(Instruction{Mnemonic::call, AtomOperand{callee, true}});
-                } else {
-                    entity.code.push_back(Instruction{Mnemonic::call, LabelOperand{callee}});
-                }
-                return CompilationResult::ok;
-            }
-        }
     }
 }
 
@@ -149,10 +260,6 @@ static CompilationResult compile_define(std::vector<Entity>& entities, ast::List
     switch (params_expr.type()) {
         case ast::ExprType::atom:
             todo();
-        case ast::ExprType::number:
-            todo();
-        case ast::ExprType::string:
-            todo();
         case ast::ExprType::list: {
             auto& params = static_cast<ast::List&>(params_expr);
             if (params.elements.empty()) {
@@ -160,20 +267,23 @@ static CompilationResult compile_define(std::vector<Entity>& entities, ast::List
             }
             for (auto& param : params.elements) {
                 if (not param->is_atom()) {
-                    return CompilationResult::define_param_is_not_an_atom;
+                    return CompilationResult::parameters_not_well_formed;
                 }
             }
 
             auto unsafe_atom_name = [](ast::Expr& expr) { return static_cast<ast::Atom const&>(expr).value; };
 
-            Entity entity{unsafe_atom_name(*params.elements[0])};
+            Env env;
+
+            Entity entity{unsafe_atom_name(*params.elements[0]), false};
             for (std::size_t i = 1; i < params.elements.size(); ++i) {
-                entity.parameters.push_back(unsafe_atom_name(*params.elements[i]));
+                // TODO: check duplicates on both
+                env.locals.insert(unsafe_atom_name(*params.elements[i]));
+                entity.parameters.insert(unsafe_atom_name(*params.elements[i]));
             }
 
-            int label_cnt = 0;
             for (std::size_t i = 2; i < list.elements.size(); ++i) {
-                auto res = compile_expr(entities, entity, *list.elements[i], label_cnt);
+                auto res = compile_expr(env, entities, entity, *list.elements[i]);
                 if (res != CompilationResult::ok) {
                     return res;
                 }
@@ -189,19 +299,24 @@ static CompilationResult compile_define(std::vector<Entity>& entities, ast::List
                 entity.code.push_back(Instruction{Mnemonic::ret, LiteralOperand{n_params}});
             }
 
+            // This will be removed completely once Entity is modeled properly
+            if (not entity.captures.empty()) {
+                throw "lol";
+            }
+
             entities.push_back(std::move(entity));
             return CompilationResult::ok;
         }
+        case ast::ExprType::number:
+            todo();
+        case ast::ExprType::string:
+            todo();
     }
 }
 
 CompilationResult compile(std::vector<Entity>& entities, ast::Expr& expr) {
     switch (expr.type()) {
         case ast::ExprType::atom:
-            todo();
-        case ast::ExprType::number:
-            todo();
-        case ast::ExprType::string:
             todo();
         case ast::ExprType::list: {
             auto& list = static_cast<ast::List&>(expr);
@@ -212,7 +327,7 @@ CompilationResult compile(std::vector<Entity>& entities, ast::Expr& expr) {
 
             auto& function_expr = *list.elements.front();
             if (not function_expr.is_atom()) {
-                return CompilationResult::calling_nonatom;
+                todo();
             }
             auto& function = static_cast<ast::Atom&>(function_expr);
 
@@ -222,6 +337,10 @@ CompilationResult compile(std::vector<Entity>& entities, ast::Expr& expr) {
 
             todo();
         }
+        case ast::ExprType::number:
+            todo();
+        case ast::ExprType::string:
+            todo();
     }
 }
 
@@ -268,6 +387,14 @@ std::string format_entity(Entity const& entity) {
     auto r = entity.name;
     for (auto& p : entity.parameters) {
         r += ' ' + p;
+    }
+    if (not entity.captures.empty()) {
+        r += " {";
+        for (char sep[] = "\0"; auto& p : entity.captures) {
+            r += sep + p;
+            sep[0] = ' ';
+        }
+        r += '}';
     }
     r += ":\n";
     for (auto& line : entity.code) {

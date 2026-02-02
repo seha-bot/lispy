@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -35,25 +36,34 @@ struct Instruction {
     Operand o2{};
 };
 
+// TODO: split into local and global?
+// Local should just have an id.
 struct Label {
     std::string name;
 };
 
 using Line = std::variant<Instruction, Label>;
 
+// TODO: model this better please.
+// Entity should be a variant and for now either a definition or a lambda.
+// Lambdas need to contain an id, parameters, captures and code
 struct Entity {
+    Entity(std::string name, bool is_lambda) : name(name), is_lambda(is_lambda) {}
+
     std::string name;
-    std::vector<std::string> parameters;
+    std::unordered_set<std::string> parameters;
+    std::unordered_set<std::string> captures;
     std::vector<Line> code;
+    bool is_lambda = false;
 };
 
 enum class CompilationResult {
     ok,
     define_too_few_arguments,
     define_missing_name,
-    define_param_is_not_an_atom,
-    calling_nonatom,
     incorrect_arity,
+    unbound_atom,
+    parameters_not_well_formed,
 };
 
 CompilationResult compile(std::vector<Entity>& entities, ast::Expr& expr);

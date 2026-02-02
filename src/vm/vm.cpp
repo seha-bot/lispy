@@ -337,7 +337,7 @@ static StepResult step(GC& gc, obj::NameManager& mgr, Machine& m) {
             static_cast<obj::String&>(**str).push(static_cast<char>(*c));
             return StepResult::ok;
         }
-        case Mnemonic::lambda: {  // lambda ip
+        case Mnemonic::closure: {  // closure ip
             auto ip = fetch_literal(instruction.o1);
             if (not ip) {
                 return ip.error();

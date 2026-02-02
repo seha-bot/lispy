@@ -20,7 +20,7 @@ enum class Mnemonic {
     print,
     mkstr,
     strpush,
-    lambda,
+    closure,
     capture,
 };
 
@@ -58,8 +58,8 @@ inline std::string to_string(Mnemonic m) {
             return "mkstr";
         case Mnemonic::strpush:
             return "strpush";
-        case Mnemonic::lambda:
-            return "lambda";
+        case Mnemonic::closure:
+            return "closure";
         case Mnemonic::capture:
             return "capture";
     }
