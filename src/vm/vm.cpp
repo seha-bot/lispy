@@ -88,8 +88,8 @@ static std::expected<std::int64_t, StepResult> fetch_literal(Operand op) {
 }
 
 static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine& m, InstrPtr ip,
-                                                Instruction instruction) {
-    switch (instruction.mnemonic) {
+                                                Instruction instr) {
+    switch (instr.mnemonic) {
         case Mnemonic::eq: {  // eq
             if (not m.has(2)) {
                 return std::unexpected(StepResult::stack_overrun);
@@ -131,7 +131,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.next();
         }
         case Mnemonic::jt: {  // jt offset
-            auto offset = fetch_literal(instruction.o1);
+            auto offset = fetch_literal(instr.o1);
             if (!offset) {
                 return std::unexpected(offset.error());
             }
@@ -151,7 +151,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.next();
         }
         case Mnemonic::jf: {  // jf offset
-            auto offset = fetch_literal(instruction.o1);
+            auto offset = fetch_literal(instr.o1);
             if (!offset) {
                 return std::unexpected(offset.error());
             }
@@ -171,14 +171,14 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.next();
         }
         case Mnemonic::jmp: {  // jmp offset
-            auto offset = fetch_literal(instruction.o1);
+            auto offset = fetch_literal(instr.o1);
             if (!offset) {
                 return std::unexpected(offset.error());
             }
             return ip.offset(*offset);
         }
         case Mnemonic::call: {  // call offset
-            auto offset = fetch_literal(instruction.o1);
+            auto offset = fetch_literal(instr.o1);
             if (!offset) {
                 return std::unexpected(offset.error());
             }
@@ -186,7 +186,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.offset(*offset);
         }
         case Mnemonic::indjmp: {  // indjmp x
-            auto x = fetch_object(m, instruction.o1);
+            auto x = fetch_object(m, instr.o1);
             if (!x) {
                 return std::unexpected(x.error());
             }
@@ -214,7 +214,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return std::visit(Visitor{m, ip}, *x);
         }
         case Mnemonic::indcall: {  // indcall x
-            auto x = fetch_object(m, instruction.o1);
+            auto x = fetch_object(m, instr.o1);
             if (!x) {
                 return std::unexpected(x.error());
             }
@@ -244,7 +244,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return std::visit(Visitor{m, ip}, *x);
         }
         case Mnemonic::push: {  // push x
-            auto x = fetch_object(m, instruction.o1);
+            auto x = fetch_object(m, instr.o1);
             if (!x) {
                 return std::unexpected(x.error());
             }
@@ -252,7 +252,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.next();
         }
         case Mnemonic::pop: {  // pop n
-            auto n = fetch_literal(instruction.o1);
+            auto n = fetch_literal(instr.o1);
             if (!n) {
                 return std::unexpected(n.error());
             }
@@ -265,7 +265,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.next();
         }
         case Mnemonic::ret: {  // ret n
-            auto n = fetch_literal(instruction.o1);
+            auto n = fetch_literal(instr.o1);
             if (!n) {
                 return std::unexpected(n.error());
             }
@@ -282,14 +282,14 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return m.unsafe_pop_call();
         }
         case Mnemonic::set: {  // set i src
-            auto i = fetch_literal(instruction.o1);
+            auto i = fetch_literal(instr.o1);
             if (!i) {
                 return std::unexpected(i.error());
             }
             if (*i < 0 or not m.has(*i + 1)) {
                 return std::unexpected(StepResult::stack_overrun);
             }
-            auto src = fetch_object(m, instruction.o2);
+            auto src = fetch_object(m, instr.o2);
             if (!src) {
                 return std::unexpected(src.error());
             }
@@ -308,7 +308,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.next();
         }
         case Mnemonic::strpush: {  // strpush c
-            auto c = fetch_literal(instruction.o1);
+            auto c = fetch_literal(instr.o1);
             if (not c) {
                 return std::unexpected(c.error());
             }
@@ -323,7 +323,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.next();
         }
         case Mnemonic::closure: {  // closure lam_ip
-            auto lam_ip = fetch_literal(instruction.o1);
+            auto lam_ip = fetch_literal(instr.o1);
             if (not lam_ip) {
                 return std::unexpected(lam_ip.error());
             }
@@ -334,7 +334,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.next();
         }
         case Mnemonic::capture: {  // capture x
-            auto x = fetch_object(m, instruction.o1);
+            auto x = fetch_object(m, instr.o1);
             if (!x) {
                 return std::unexpected(x.error());
             }
@@ -351,11 +351,12 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
     }
 }
 
-static void execute(std::vector<Instruction> const& instrs) {
+static void execute(std::vector<Instruction> const& instrs, std::size_t entry) {
     GC gc;
     obj::NameManager mgr;
     Machine m;
-    InstrPtr ip(0);
+    m.push_call(InstrPtr(instrs.size()));
+    InstrPtr ip(entry);
     while (true) {
         if (ip.value() >= instrs.size()) {
             break;
@@ -365,9 +366,40 @@ static void execute(std::vector<Instruction> const& instrs) {
         auto next = step(gc, mgr, m, ip, instr);
         if (not next) {
             std::cout << "[Error] at " << ip.value() << ": " << format_sr(next.error()) << '\n';
+            return;
         }
         ip = *next;
     }
 }
 
-int main() { execute({}); }
+int main() {
+    std::vector<Instruction> instrs;
+
+    // print_one_transformed
+    instrs.emplace_back(Mnemonic::push, Operand{OperandType::literal, 1});
+    instrs.emplace_back(Mnemonic::indcall, Operand{OperandType::stack, 1});
+    instrs.emplace_back(Mnemonic::print);
+    instrs.emplace_back(Mnemonic::set, Operand{OperandType::literal, 1}, Operand{OperandType::stack, 0});
+    instrs.emplace_back(Mnemonic::ret, Operand{OperandType::literal, 1});
+
+    // lam0
+    instrs.emplace_back(Mnemonic::push, Operand{OperandType::literal, 0});
+    instrs.emplace_back(Mnemonic::push, Operand{OperandType::literal, 1});
+    instrs.emplace_back(Mnemonic::cons);
+    instrs.emplace_back(Mnemonic::set, Operand{OperandType::literal, 2}, Operand{OperandType::stack, 0});
+    instrs.emplace_back(Mnemonic::ret, Operand{OperandType::literal, 2});
+
+    // add
+    instrs.emplace_back(Mnemonic::closure, Operand{OperandType::literal, 5});
+    instrs.emplace_back(Mnemonic::capture, Operand{OperandType::stack, 1});
+    instrs.emplace_back(Mnemonic::set, Operand{OperandType::literal, 1}, Operand{OperandType::stack, 0});
+    instrs.emplace_back(Mnemonic::ret, Operand{OperandType::literal, 1});
+
+    // main
+    instrs.emplace_back(Mnemonic::push, Operand{OperandType::literal, 2});
+    instrs.emplace_back(Mnemonic::call, Operand{OperandType::literal, -5});
+    instrs.emplace_back(Mnemonic::call, Operand{OperandType::literal, -16});
+    instrs.emplace_back(Mnemonic::ret, Operand{OperandType::literal, 0});
+
+    execute(instrs, 14);
+}

@@ -134,7 +134,7 @@ inline void format_to(std::ostream& os, NameManager& mgr, Object obj) {
     struct Visitor {
         void operator()(Atom atom) { os << mgr.get_name(atom); }
         void operator()(Number num) { os << num.value; }
-        void operator()(DynObj *obj) { format_to(os, mgr, obj); }
+        void operator()(DynObj *obj) { obj->format_to(os, mgr); }
         std::ostream& os;
         NameManager& mgr;
     };
