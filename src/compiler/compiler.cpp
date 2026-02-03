@@ -214,8 +214,7 @@ static CompilationResult compile_expr(Env& env, std::vector<Entity>& entities, E
                             env.stack_depth += 1;
                         }
 
-                        bool is_local = entity.parameters.contains(callee);
-                        if (is_local) {
+                        if (env.locals.contains(callee)) {
                             if (not entity.parameters.contains(callee)) {
                                 // TODO: check duplicates
                                 entity.captures.push_back(callee);
