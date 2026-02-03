@@ -19,12 +19,14 @@ static CompilationResult compile_quote(std::vector<Line>& code, ast::Expr& expr)
         }
         case ast::ExprType::list: {
             auto& list = static_cast<ast::List&>(expr).elements;
-            code.push_back(Instruction{Mnemonic::push, AtomOperand{"NIL"}});
-            for (auto it = list.rbegin(); it != list.rend(); ++it) {
-                auto arg = compile_quote(code, **it);
+            for (auto& e : list) {
+                auto arg = compile_quote(code, *e);
                 if (arg != CompilationResult::ok) {
                     return arg;
                 }
+            }
+            code.push_back(Instruction{Mnemonic::push, AtomOperand{"NIL"}});
+            for (auto& _ : list) {
                 code.push_back(Instruction{Mnemonic::cons});
             }
             return CompilationResult::ok;
@@ -395,7 +397,7 @@ static std::string format_line(Line const& line) {
             }
             return r;
         }
-        auto operator()(Label label) { return label.name; }
+        auto operator()(Label label) { return label.name + ':'; }
     };
     return std::visit(Visitor{}, line);
 }

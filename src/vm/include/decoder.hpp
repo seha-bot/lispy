@@ -27,21 +27,18 @@ struct Decoder {
         return static_cast<std::int16_t>(high << 8 | low);
     }
 
-    Operand get_operand(InstrPtr ip, std::size_t offset) const {
+    Operand operand_impl(InstrPtr ip, std::size_t offset) const {
         std::uint64_t bits = 0;
-        bits = (bits << 8) | bytes[ip.value() + offset + 0];
-        bits = (bits << 8) | bytes[ip.value() + offset + 1];
-        bits = (bits << 8) | bytes[ip.value() + offset + 2];
-        bits = (bits << 8) | bytes[ip.value() + offset + 3];
-        bits = (bits << 8) | bytes[ip.value() + offset + 4];
-        bits = (bits << 8) | bytes[ip.value() + offset + 5];
-        bits = (bits << 8) | bytes[ip.value() + offset + 6];
-        bits = (bits << 8) | bytes[ip.value() + offset + 7];
+        for (std::size_t i = 0; i < 8; ++i) {
+            bits = (bits << 8) | bytes[ip.value() + offset + i];
+        }
         return Operand{OperandType(bytes[ip.value()] >> 6), static_cast<std::int64_t>(bits)};
     }
 
-    Operand get_object(InstrPtr ip) const { return get_operand(ip, 1); }
-    Operand get_object2(InstrPtr ip) const { return get_operand(ip, 9); }
+    Operand operand1(InstrPtr ip) const { return operand_impl(ip, 1); }
+    Operand operand2(InstrPtr ip) const { return operand_impl(ip, 9); }
+
+    InstrPtr entry_point() const { return InstrPtr(static_cast<std::size_t>(operand_impl(InstrPtr(0), 0).value)); }
 
     static constexpr std::int32_t instr_size(Mnemonic m) {
         switch (m) {

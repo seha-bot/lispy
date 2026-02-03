@@ -30,10 +30,6 @@ struct NameManager {
     NameManager(NameManager const&) = delete;
     NameManager& operator=(NameManager const&) = delete;
 
-    static constexpr std::size_t false_ = 0;
-    static constexpr std::size_t true_ = 1;
-    static constexpr std::size_t nil = 2;
-
     std::size_t register_(std::string atom) {
         m_names.push_back(std::move(atom));
         return m_names.size() - 1;
@@ -42,7 +38,7 @@ struct NameManager {
     std::string const& get_name(obj::Atom atom) const { return m_names[atom.id]; }
 
 private:
-    std::vector<std::string> m_names{"F", "T", "NIL"};
+    std::vector<std::string> m_names;
 };
 
 void format_to(std::ostream& os, NameManager& mgr, Object obj);
@@ -81,20 +77,19 @@ struct Cons : DynObj, GC::Managed<Cons> {
     void format_to(std::ostream& os, NameManager& mgr) const override {
         os << '(';
         obj::format_to(os, mgr, m_car);
-        if (m_cdr == Object(Atom{NameManager::nil})) {
-            os << ')';
-            return;
-        }
 
         Object it = m_cdr;
         while (auto obj = std::get_if<DynObj *>(&it)) {
             if ((*obj)->type() != DynObjType::cons) {
                 break;
             }
-            obj::format_to(os << ' ', mgr, it);
-            it = static_cast<Cons&>(**obj).m_cdr;
+            auto cons = static_cast<Cons&>(**obj);
+            obj::format_to(os << ' ', mgr, cons.m_car);
+            it = cons.m_cdr;
         }
-        obj::format_to(os << ' ', mgr, it);
+        if (auto atom = std::get_if<Atom>(&it); not atom or mgr.get_name(*atom) != "NIL") {
+            obj::format_to(os << ' ', mgr, it);
+        }
         os << ')';
     }
 

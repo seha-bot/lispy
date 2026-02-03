@@ -1,28 +1,30 @@
 #ifndef MNEMONIC_HPP
 #define MNEMONIC_HPP
 
+#include <optional>
 #include <string>
+#include <string_view>
 
 enum class Mnemonic {
-    eq,
-    cons,
-    car,
-    cdr,
-    jt,
-    jf,
-    jmp,
-    call,
-    indjmp,
-    indcall,
-    push,
-    pop,
-    ret,
-    set,
-    print,
-    mkstr,
-    strpush,
-    closure,
-    capture,
+    eq = 0,
+    cons = 1,
+    car = 2,
+    cdr = 3,
+    jt = 4,
+    jf = 5,
+    jmp = 6,
+    call = 7,
+    indjmp = 8,
+    indcall = 9,
+    push = 10,
+    pop = 11,
+    ret = 12,
+    set = 13,
+    print = 14,
+    mkstr = 15,
+    strpush = 16,
+    closure = 17,
+    capture = 18,
 };
 
 inline std::string to_string(Mnemonic m) {
@@ -65,6 +67,50 @@ inline std::string to_string(Mnemonic m) {
             return "closure";
         case Mnemonic::capture:
             return "capture";
+    }
+}
+
+inline std::optional<Mnemonic> from_string(std::string_view s) {
+    if (s == "eq") {
+        return Mnemonic::eq;
+    } else if (s == "cons") {
+        return Mnemonic::cons;
+    } else if (s == "car") {
+        return Mnemonic::car;
+    } else if (s == "cdr") {
+        return Mnemonic::cdr;
+    } else if (s == "jt") {
+        return Mnemonic::jt;
+    } else if (s == "jf") {
+        return Mnemonic::jf;
+    } else if (s == "jmp") {
+        return Mnemonic::jmp;
+    } else if (s == "call") {
+        return Mnemonic::call;
+    } else if (s == "indjmp") {
+        return Mnemonic::indjmp;
+    } else if (s == "indcall") {
+        return Mnemonic::indcall;
+    } else if (s == "push") {
+        return Mnemonic::push;
+    } else if (s == "pop") {
+        return Mnemonic::pop;
+    } else if (s == "ret") {
+        return Mnemonic::ret;
+    } else if (s == "set") {
+        return Mnemonic::set;
+    } else if (s == "print") {
+        return Mnemonic::print;
+    } else if (s == "mkstr") {
+        return Mnemonic::mkstr;
+    } else if (s == "strpush") {
+        return Mnemonic::strpush;
+    } else if (s == "closure") {
+        return Mnemonic::closure;
+    } else if (s == "capture") {
+        return Mnemonic::capture;
+    } else {
+        return std::nullopt;
     }
 }
 

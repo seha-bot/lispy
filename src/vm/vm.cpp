@@ -1,10 +1,8 @@
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <fstream>
 #include <iostream>
-#include <iterator>
 #include <string>
 #include <utility>
 #include <vector>
@@ -42,6 +40,7 @@ enum class StepResult {
     stack_overrun,
     call_stack_overrun,
     mismatched_type,
+    corrupted_opcode,
 };
 
 static std::ostream& operator<<(std::ostream& os, StepResult sr) {
@@ -52,10 +51,12 @@ static std::ostream& operator<<(std::ostream& os, StepResult sr) {
             return os << "call_stack_overrun";
         case StepResult::mismatched_type:
             return os << "mismatched_type";
+        case StepResult::corrupted_opcode:
+            return os << "corrupted_opcode";
     }
 }
 
-static std::expected<obj::Object, StepResult> fetch_object2(Machine& m, Operand op) {
+static std::expected<obj::Object, StepResult> fetch_object(Machine& m, Operand op) {
     switch (op.type) {
         case OperandType::atom:
             return obj::Atom{static_cast<std::size_t>(op.value)};
@@ -68,9 +69,11 @@ static std::expected<obj::Object, StepResult> fetch_object2(Machine& m, Operand 
             return m.unsafe_seek(static_cast<std::size_t>(op.value));
         }
     }
+
+    return std::unexpected(StepResult::corrupted_opcode);
 }
 
-static std::expected<std::int64_t, StepResult> fetch_literal2(Operand op) {
+static std::expected<std::int64_t, StepResult> fetch_literal(Operand op) {
     if (op.type == OperandType::literal) {
         return op.value;
     }
@@ -92,9 +95,9 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             if (not m.has(2)) {
                 return std::unexpected(StepResult::stack_overrun);
             }
-            auto arg1 = m.unsafe_pop();
-            auto arg2 = m.unsafe_top();
-            m.unsafe_top() = obj::Cons::make(gc, arg1, arg2).get();
+            auto rhs = m.unsafe_pop();
+            auto lhs = m.unsafe_top();
+            m.unsafe_top() = obj::Cons::make(gc, lhs, rhs).get();
             return ip.offset(Decoder::instr_size(Mnemonic::cons));
         }
         case Mnemonic::car: {  // car
@@ -159,7 +162,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.offset(dec.get_offset(ip));
         }
         case Mnemonic::indjmp: {  // indjmp x
-            auto x = fetch_object2(m, dec.get_object(ip));
+            auto x = fetch_object(m, dec.operand1(ip));
             if (!x) {
                 return std::unexpected(x.error());
             }
@@ -189,7 +192,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return std::visit(Visitor{m, ip}, *x);
         }
         case Mnemonic::indcall: {  // indcall x
-            auto x = fetch_object2(m, dec.get_object(ip));
+            auto x = fetch_object(m, dec.operand1(ip));
             if (!x) {
                 return std::unexpected(x.error());
             }
@@ -221,7 +224,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return std::visit(Visitor{m, ip}, *x);
         }
         case Mnemonic::push: {  // push x
-            auto x = fetch_object2(m, dec.get_object(ip));
+            auto x = fetch_object(m, dec.operand1(ip));
             if (!x) {
                 return std::unexpected(x.error());
             }
@@ -229,7 +232,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.offset(Decoder::instr_size(Mnemonic::push));
         }
         case Mnemonic::pop: {  // pop n
-            auto n = fetch_literal2(dec.get_object(ip));
+            auto n = fetch_literal(dec.operand1(ip));
             if (!n) {
                 return std::unexpected(n.error());
             }
@@ -242,7 +245,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.offset(Decoder::instr_size(Mnemonic::pop));
         }
         case Mnemonic::ret: {  // ret n
-            auto n = fetch_literal2(dec.get_object(ip));
+            auto n = fetch_literal(dec.operand1(ip));
             if (!n) {
                 return std::unexpected(n.error());
             }
@@ -259,18 +262,15 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return m.unsafe_pop_call();
         }
         case Mnemonic::set: {  // set i src
-            auto i = fetch_literal2(dec.get_object(ip));
-            if (!i) {
-                return std::unexpected(i.error());
-            }
-            if (*i < 0 or not m.has(*i + 1)) {
+            auto i = dec.operand1(ip).value;
+            if (i < 0 or not m.has(i + 1)) {
                 return std::unexpected(StepResult::stack_overrun);
             }
-            auto src = fetch_object2(m, dec.get_object2(ip));
+            auto src = fetch_object(m, dec.operand2(ip));
             if (!src) {
                 return std::unexpected(src.error());
             }
-            m.unsafe_seek(static_cast<std::size_t>(*i)) = *src;
+            m.unsafe_seek(static_cast<std::size_t>(i)) = *src;
             return ip.offset(Decoder::instr_size(Mnemonic::set));
         }
         case Mnemonic::print: {  // print
@@ -285,7 +285,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.offset(Decoder::instr_size(Mnemonic::mkstr));
         }
         case Mnemonic::strpush: {  // strpush c
-            auto c = fetch_literal2(dec.get_object(ip));
+            auto c = fetch_literal(dec.operand1(ip));
             if (not c) {
                 return std::unexpected(c.error());
             }
@@ -300,7 +300,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.offset(Decoder::instr_size(Mnemonic::strpush));
         }
         case Mnemonic::closure: {  // closure lam_ip
-            auto lam_ip = fetch_literal2(dec.get_object(ip));
+            auto lam_ip = fetch_literal(dec.operand1(ip));
             if (not lam_ip) {
                 return std::unexpected(lam_ip.error());
             }
@@ -311,7 +311,7 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.offset(Decoder::instr_size(Mnemonic::closure));
         }
         case Mnemonic::capture: {  // capture x
-            auto x = fetch_object2(m, dec.get_object(ip));
+            auto x = fetch_object(m, dec.operand1(ip));
             if (!x) {
                 return std::unexpected(x.error());
             }
@@ -326,6 +326,8 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             return ip.offset(Decoder::instr_size(Mnemonic::capture));
         }
     }
+
+    return std::unexpected(StepResult::corrupted_opcode);
 }
 
 int main(int argc, char *argv[]) {
@@ -341,16 +343,28 @@ int main(int argc, char *argv[]) {
             std::cerr << "Can't open file for reading.\n";
             return EXIT_FAILURE;
         }
-        std::copy(  //
-            std::istream_iterator<unsigned char>(in), std::istream_iterator<unsigned char>(),
-            std::back_inserter(dec.bytes)  //
-        );
+        while (true) {
+            auto b = in.get();
+            if (not in) {
+                break;
+            }
+            dec.bytes.push_back(b);
+        }
+    }
+
+    auto ip = dec.entry_point();
+
+    obj::NameManager mgr;
+    for (std::size_t i = 8; dec.bytes[i] != '\0'; ++i) {
+        std::string atom;
+        while (dec.bytes[i] != '\0') {
+            atom.push_back(dec.bytes[i++]);
+        }
+        mgr.register_(std::move(atom));
     }
 
     GC gc;
-    obj::NameManager mgr;
     Machine m;
-    InstrPtr ip(static_cast<std::size_t>(dec.get_object(InstrPtr(0)).value));
     m.push_call(InstrPtr(dec.bytes.size()));
     while (true) {
         if (ip.value() >= dec.bytes.size()) {
@@ -359,7 +373,7 @@ int main(int argc, char *argv[]) {
 
         auto next_ip = step(gc, mgr, m, dec, ip);
         if (not next_ip) {
-            std::cout << "[Error] at " << ip.value() << ": " << next_ip.error() << '\n';
+            std::cout << "[Error]: " << next_ip.error() << '\n';
             return EXIT_FAILURE;
         }
         ip = *next_ip;
