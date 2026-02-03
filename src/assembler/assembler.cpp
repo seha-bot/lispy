@@ -16,7 +16,7 @@
 // Rename Decoder to CoDec and have most of this file be there.
 enum class OperandType { atom, literal, stack };
 
-void push_n(std::vector<unsigned char>& buf, std::uint64_t val, std::size_t n) {
+void push_n(std::vector<unsigned char>& buf, std::int64_t val, std::size_t n) {
     auto bits = static_cast<std::uint64_t>(val);
     for (std::size_t i = 0; i < n; ++i) {
         auto x = (bits >> (((n - 1) - i) * 8)) & 0xFF;
@@ -24,8 +24,7 @@ void push_n(std::vector<unsigned char>& buf, std::uint64_t val, std::size_t n) {
     }
 };
 
-void write_n(std::vector<unsigned char>& buf, std::size_t at, std::uint64_t val, std::size_t n) {
-    auto bits = static_cast<std::uint64_t>(val);
+void write_n(std::vector<unsigned char>& buf, std::size_t at, std::uint64_t bits, std::size_t n) {
     for (std::size_t i = 0; i < n; ++i) {
         auto x = (bits >> (((n - 1) - i) * 8)) & 0xFF;
         buf[at + i] = static_cast<unsigned char>(x);

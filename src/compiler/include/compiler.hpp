@@ -53,7 +53,7 @@ struct Entity {
     Entity(std::string name, bool is_lambda) : name(name), is_lambda(is_lambda) {}
 
     std::string name;
-    std::unordered_map<std::string, int> parameters;
+    std::unordered_map<std::string, std::size_t> parameters;
     std::vector<std::string> captures;
     std::vector<Line> code;
     bool is_lambda = false;

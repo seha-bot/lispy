@@ -348,7 +348,7 @@ int main(int argc, char *argv[]) {
             if (not in) {
                 break;
             }
-            dec.bytes.push_back(b);
+            dec.bytes.push_back(static_cast<unsigned char>(b));
         }
     }
 
@@ -358,7 +358,7 @@ int main(int argc, char *argv[]) {
     for (std::size_t i = 8; dec.bytes[i] != '\0'; ++i) {
         std::string atom;
         while (dec.bytes[i] != '\0') {
-            atom.push_back(dec.bytes[i++]);
+            atom.push_back(static_cast<char>(dec.bytes[i++]));
         }
         mgr.register_(std::move(atom));
     }
