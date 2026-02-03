@@ -43,6 +43,7 @@ struct Env {
     std::unordered_set<std::string> locals;
     int lambda_cnt;
     int label_cnt;
+    int stack_depth;
 };
 
 static CompilationResult compile_expr(Env& env, std::vector<Entity>& entities, Entity& entity, ast::Expr& expr) {
@@ -52,9 +53,11 @@ static CompilationResult compile_expr(Env& env, std::vector<Entity>& entities, E
             if (env.locals.contains(atom.value)) {
                 if (not entity.parameters.contains(atom.value)) {
                     // TODO: check duplicates
-                    entity.captures.insert(atom.value);
+                    entity.captures.push_back(atom.value);
                 }
-                entity.code.push_back(Instruction{Mnemonic::push, AtomOperand{atom.value, true}});
+                entity.code.push_back(
+                    Instruction{Mnemonic::push,
+                                LiteralOperand{env.stack_depth + entity.stack_index(atom.value), true, atom.value}});
             } else {
                 entity.code.push_back(Instruction{Mnemonic::push, LabelOperand{atom.value}});
             }
@@ -77,12 +80,15 @@ static CompilationResult compile_expr(Env& env, std::vector<Entity>& entities, E
                         if (list.elements.size() != n + 1) {
                             return CompilationResult::incorrect_arity;
                         }
+                        auto old_depth = env.stack_depth;
                         for (std::size_t i = 0; i < n; i++) {
                             auto arg = compile_expr(env, entities, entity, *list.elements[i + 1]);
                             if (arg != CompilationResult::ok) {
                                 return arg;
                             }
+                            env.stack_depth += 1;
                         }
+                        env.stack_depth = old_depth;
                         entity.code.push_back(Instruction{m});
                         return CompilationResult::ok;
                     };
@@ -146,11 +152,11 @@ static CompilationResult compile_expr(Env& env, std::vector<Entity>& entities, E
                             return static_cast<ast::Atom const&>(expr).value;
                         };
 
-                        Entity lambda{"lam" + std::to_string(env.lambda_cnt++), true};
+                        Entity lambda{entity.name + "lam" + std::to_string(env.lambda_cnt++), true};
                         for (auto& param : params.elements) {
                             // TODO: check duplicates on both
                             env.locals.insert(unsafe_atom_name(*param));
-                            lambda.parameters.insert(unsafe_atom_name(*param));
+                            lambda.parameters.emplace(unsafe_atom_name(*param), lambda.parameters.size());
                         }
 
                         for (std::size_t i = 2; i < list.elements.size(); ++i) {
@@ -177,6 +183,7 @@ static CompilationResult compile_expr(Env& env, std::vector<Entity>& entities, E
                             lambda.code.push_back(Instruction{Mnemonic::ret, LiteralOperand{n_elements}});
                         }
 
+                        // TODO: maybe this should go into the optimizer step, but idk.
                         if (lambda.captures.empty()) {
                             entity.code.push_back(Instruction{Mnemonic::push, LabelOperand{lambda.name}});
                         } else {
@@ -184,48 +191,59 @@ static CompilationResult compile_expr(Env& env, std::vector<Entity>& entities, E
                             for (auto& capture : lambda.captures) {
                                 if (not entity.parameters.contains(capture)) {
                                     // TODO: check duplicates
-                                    entity.captures.insert(capture);
+                                    entity.captures.push_back(capture);
                                 }
-                                entity.code.push_back(Instruction{Mnemonic::capture, AtomOperand{capture, true}});
+                                entity.code.push_back(Instruction{
+                                    Mnemonic::capture,
+                                    LiteralOperand{env.stack_depth + entity.stack_index(capture) + 1, true, capture}});
                             }
                         }
 
                         entities.push_back(std::move(lambda));
 
                         return CompilationResult::ok;
-
                     } else {
+                        auto old_depth = env.stack_depth;
                         for (std::size_t i = 1; i < list.elements.size(); i++) {
                             auto arg = compile_expr(env, entities, entity, *list.elements[i]);
                             if (arg != CompilationResult::ok) {
                                 return arg;
                             }
+                            env.stack_depth += 1;
                         }
 
-                        bool is_local = std::ranges::find(entity.parameters, callee) != entity.parameters.end();
+                        bool is_local = entity.parameters.contains(callee);
                         if (is_local) {
                             if (not entity.parameters.contains(callee)) {
                                 // TODO: check duplicates
-                                entity.captures.insert(callee);
+                                entity.captures.push_back(callee);
                             }
-                            entity.code.push_back(Instruction{Mnemonic::indcall, AtomOperand{callee, true}});
+                            entity.code.push_back(Instruction{
+                                Mnemonic::indcall,
+                                LiteralOperand{env.stack_depth + entity.stack_index(callee), true, callee}});
                         } else {
                             entity.code.push_back(Instruction{Mnemonic::call, LabelOperand{callee}});
                         }
+
+                        env.stack_depth = old_depth;
                         return CompilationResult::ok;
                     }
                 }
                 case ast::ExprType::list: {
+                    auto old_depth = env.stack_depth;
                     for (std::size_t i = 1; i < list.elements.size(); i++) {
                         auto arg = compile_expr(env, entities, entity, *list.elements[i]);
                         if (arg != CompilationResult::ok) {
                             return arg;
                         }
+                        env.stack_depth += 1;
                     }
                     auto callee = compile_expr(env, entities, entity, *list.elements[0]);
                     if (callee != CompilationResult::ok) {
                         return callee;
                     }
+                    env.stack_depth = old_depth;
+
                     entity.code.push_back(Instruction{Mnemonic::indcall, LiteralOperand{0, true}});
                     return CompilationResult::ok;
                 }
@@ -279,7 +297,7 @@ static CompilationResult compile_define(std::vector<Entity>& entities, ast::List
             for (std::size_t i = 1; i < params.elements.size(); ++i) {
                 // TODO: check duplicates on both
                 env.locals.insert(unsafe_atom_name(*params.elements[i]));
-                entity.parameters.insert(unsafe_atom_name(*params.elements[i]));
+                entity.parameters.emplace(unsafe_atom_name(*params.elements[i]), entity.parameters.size());
             }
 
             for (std::size_t i = 2; i < list.elements.size(); ++i) {
@@ -344,16 +362,15 @@ CompilationResult compile(std::vector<Entity>& entities, ast::Expr& expr) {
     }
 }
 
-static std::string to_string(AtomOperand const& o) {
-    if (o.is_stack) {
-        return '[' + o.name + ']';
-    }
-    return '\'' + o.name;
-}
+static std::string to_string(AtomOperand const& o) { return '\'' + o.name; }
 
 static std::string to_string(LiteralOperand const& o) {
     if (o.is_stack) {
-        return '[' + std::to_string(o.value) + ']';
+        auto r = '[' + std::to_string(o.value) + ']';
+        if (not o.parameter_name.empty()) {
+            r += " ; " + o.parameter_name;
+        }
+        return r;
     }
     return std::to_string(o.value);
 }
@@ -385,18 +402,29 @@ static std::string format_line(Line const& line) {
 
 std::string format_entity(Entity const& entity) {
     auto r = entity.name;
-    for (auto& p : entity.parameters) {
-        r += ' ' + p;
+    r += ':';
+    if (entity.parameters.size() + entity.captures.size() != 0) {
+        r += " ;";
+    }
+
+    if (not entity.parameters.empty()) {
+        std::vector<std::string> ordered(entity.parameters.size());
+        for (auto& [name, i] : entity.parameters) {
+            ordered[i] = name;
+        }
+        for (auto& name : ordered) {
+            r += ' ' + name;
+        }
     }
     if (not entity.captures.empty()) {
         r += " {";
-        for (char sep[] = "\0"; auto& p : entity.captures) {
-            r += sep + p;
+        for (char sep[] = "\0"; auto& name : entity.captures) {
+            r += sep + name;
             sep[0] = ' ';
         }
         r += '}';
     }
-    r += ":\n";
+    r += '\n';
     for (auto& line : entity.code) {
         r += format_line(line) + '\n';
     }
