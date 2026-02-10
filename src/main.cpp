@@ -6,6 +6,7 @@
 #include <stdexcept>
 
 #include "compiler/include/compiler.hpp"
+#include "compiler/include/explorer.hpp"
 #include "parser/include/parser.hpp"
 
 extern "C" {
@@ -23,38 +24,46 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    auto program = [&] {
+    auto source = [&] {
         std::ifstream f(argv[1]);
         if (not f) {
             throw std::runtime_error("file something");
         }
         std::stringstream buffer;
         buffer << f.rdbuf();
-        return run_parser(buffer.str());
+        return buffer.str();
     }();
 
     std::ofstream output("/home/seha/repos/lispy/out.txt");
     if (not output) {
         throw std::runtime_error("file something");
     }
-    std::vector<Entity> entities;
-    for (auto& x : program) {
-        std::cout << x->format() << '\n';
-        try {
-            if (auto r = compile(entities, *x); r != CompilationResult::ok) {
-                std::cerr << "[Error]\n";
-            }
-        } catch (std::runtime_error const& e) {
-            std::cerr << "[Error]: " << e.what() << '\n';
-            break;
-        }
+
+    auto program = run_parser(source);
+    if (not program) {
+        std::cerr << program.error() << '\n';
+        return EXIT_FAILURE;
     }
 
-    // This will print 2 trailing newlines because format_entity
-    // ends with a newline, but this doesn't matter really.
-    for (auto& entity : entities) {
-        output << format_entity(entity) << '\n';
+    auto program_res = do_program(*program);
+    if (not program_res) {
+        auto& errs = program_res.error();
+        for (auto& err : errs) {
+            std::cerr << err << '\n';
+        }
+        return EXIT_FAILURE;
     }
+
+    auto code_res = compiler::compile_program(*program_res);
+    if (not code_res) {
+        auto& errs = code_res.error();
+        for (auto& err : errs) {
+            std::cerr << err << '\n';
+        }
+        return EXIT_FAILURE;
+    }
+
+    output << *code_res;
 
     // using_history();
     // read_history("repl_history.txt");

@@ -12,28 +12,44 @@ namespace ast {
 
 enum class ExprType { atom, list, number, string };
 
+struct Source {
+    std::size_t position;
+    int line;
+    int col;
+};
+
 struct Expr {
+    Expr(Source source) : m_source(source) {}
+
     virtual ~Expr() = default;
     virtual std::string format() const = 0;
     virtual ExprType type() const = 0;
+
+    Source source() const { return m_source; }
 
     bool is_atom() const { return type() == ExprType::atom; }
     bool is_list() const { return type() == ExprType::list; }
     bool is_number() const { return type() == ExprType::number; }
     bool is_string() const { return type() == ExprType::string; }
+
+private:
+    Source m_source;
 };
 
+using ExprPtr = std::unique_ptr<Expr>;
+
 struct Atom : Expr {
-    Atom(std::string value) : value(std::move(value)) {}
+    Atom(std::string value, Source source) : Expr(source), value(std::move(value)) {}
 
     std::string format() const override { return value; }
     ExprType type() const override { return ExprType::atom; }
 
+    // TODO: make readonly and rename to name
     std::string value;
 };
 
 struct List : Expr {
-    List(std::vector<std::unique_ptr<Expr>> list) : elements(std::move(list)) {}
+    List(std::vector<ExprPtr> list, Source source) : Expr(source), elements(std::move(list)) {}
 
     std::string format() const override {
         std::string r = "(";
@@ -46,11 +62,11 @@ struct List : Expr {
 
     ExprType type() const override { return ExprType::list; }
 
-    std::vector<std::unique_ptr<Expr>> elements;
+    std::vector<ExprPtr> elements;
 };
 
 struct Number : Expr {
-    Number(std::int64_t value) : value(value) {}
+    Number(std::int64_t value, Source source) : Expr(source), value(value) {}
 
     std::string format() const override { return std::to_string(value); }
     ExprType type() const override { return ExprType::number; }
@@ -59,7 +75,7 @@ struct Number : Expr {
 };
 
 struct String : Expr {
-    String(std::string value) : value(std::move(value)) {}
+    String(std::string value, Source source) : Expr(source), value(std::move(value)) {}
 
     std::string format() const override { return '"' + value + '"'; }
     ExprType type() const override { return ExprType::string; }

@@ -1,3 +1,3 @@
-add_library(compiler compiler.cpp)
+add_library(compiler compiler.cpp explorer.cpp)
 target_include_directories(compiler PRIVATE include)
 target_link_libraries(compiler PRIVATE lispy_core)

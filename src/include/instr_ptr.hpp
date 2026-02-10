@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
+/// @brief Represents an index of an instruction inside bytecode.
 struct InstrPtr {
     explicit InstrPtr(std::size_t value) : m_value(value) {}
 

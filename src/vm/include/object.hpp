@@ -35,6 +35,8 @@ struct NameManager {
         return m_names.size() - 1;
     }
 
+    void assign(std::vector<std::string> names) { m_names = std::move(names); }
+
     std::string const& get_name(obj::Atom atom) const { return m_names[atom.id]; }
 
 private:

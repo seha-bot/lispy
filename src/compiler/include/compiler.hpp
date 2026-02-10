@@ -1,83 +1,86 @@
 #ifndef COMPILER_HPP
 #define COMPILER_HPP
 
-#include <algorithm>
+#include <cstddef>
 #include <cstdint>
-#include <stdexcept>
+#include <ostream>
 #include <string>
-#include <unordered_map>
 #include <variant>
 #include <vector>
 
-#include "ast.hpp"
+#include "explorer.hpp"
 #include "mnemonic.hpp"
 
+namespace compiler {
+
 struct AtomOperand {
+    friend std::ostream& operator<<(std::ostream& os, AtomOperand const& x) { return os << x.name; }
     std::string name;
 };
 
+struct StackOperand {
+    friend std::ostream& operator<<(std::ostream& os, StackOperand const& x) { return os << '[' << x.i << ']'; }
+    std::size_t i;
+};
+
 struct LiteralOperand {
+    friend std::ostream& operator<<(std::ostream& os, LiteralOperand const& x) { return os << x.value; }
     std::int64_t value;
-    bool is_stack = false;
-    std::string parameter_name{};
 };
 
 struct CharOperand {
+    friend std::ostream& operator<<(std::ostream& os, CharOperand const& x) { return os << '\'' << x.value << '\''; }
     char value;
 };
 
 struct LabelOperand {
+    friend std::ostream& operator<<(std::ostream& os, LabelOperand const& x) { return os << x.name; }
     std::string name;
 };
 
-using Operand = std::variant<std::monostate, AtomOperand, LiteralOperand, CharOperand, LabelOperand>;
+struct LocalLabelOperand {
+    friend std::ostream& operator<<(std::ostream& os, LocalLabelOperand const& x) { return os << ".L" << x.id; }
+    std::size_t id;
+};
+
+using Operand = std::variant<AtomOperand, StackOperand, LiteralOperand, CharOperand, LabelOperand, LocalLabelOperand>;
 
 struct Instruction {
-    Mnemonic mnemonic;
-    Operand o1{};
-    Operand o2{};
-};
-
-// TODO: split into local and global?
-// Local should just have an id.
-struct Label {
-    std::string name;
-};
-
-using Line = std::variant<Instruction, Label>;
-
-// TODO: model this better please.
-// Entity should be a variant and for now either a definition or a lambda.
-// Lambdas need to contain an id, parameters, captures and code
-struct Entity {
-    Entity(std::string name, bool is_lambda) : name(name), is_lambda(is_lambda) {}
-
-    std::string name;
-    std::unordered_map<std::string, std::size_t> parameters;
-    std::vector<std::string> captures;
-    std::vector<Line> code;
-    bool is_lambda = false;
-
-    int stack_index(std::string const& name) const {
-        if (parameters.contains(name)) {
-            return parameters.size() + captures.size() - 1 - parameters.at(name);
-        } else if (auto it = std::ranges::find(captures, name); it != captures.end()) {
-            return captures.size() - 1 - (it - captures.begin());
+    friend std::ostream& operator<<(std::ostream& os, Instruction const& x) {
+        os << '\t' << to_string(x.mnemonic);
+        if (x.operand) {
+            std::visit([&](auto& op) { os << ' ' << op; }, *x.operand);
         }
-        throw std::logic_error("idk what to do");
+        return os;
     }
+    Mnemonic mnemonic;
+    std::optional<Operand> operand;
 };
 
-enum class CompilationResult {
-    ok,
-    define_too_few_arguments,
-    define_missing_name,
-    incorrect_arity,
-    unbound_atom,
-    parameters_not_well_formed,
+struct Label {
+    friend std::ostream& operator<<(std::ostream& os, Label const& x) { return os << x.name << ':'; }
+    std::string name;
 };
 
-CompilationResult compile(std::vector<Entity>& entities, ast::Expr& expr);
-std::string format_entity(Entity const& entity);
+struct LocalLabel {
+    friend std::ostream& operator<<(std::ostream& os, LocalLabel const& x) { return os << ".L" << x.id << ':'; }
+    std::size_t id;
+};
+
+using Line = std::variant<Instruction, Label, LocalLabel>;
+
+struct Code {
+    friend std::ostream& operator<<(std::ostream& os, Code const& x) {
+        for (auto& line : x.lines) {
+            std::visit([&](auto& l) { os << l << '\n'; }, line);
+        }
+        return os;
+    }
+    std::vector<Line> lines;
+};
+
+std::expected<Code, std::vector<StaticError>> compile_program(Program const& program);
+
+}  // namespace compiler
 
 #endif

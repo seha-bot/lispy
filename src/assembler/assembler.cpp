@@ -4,32 +4,14 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include "mnemonic.hpp"
-
-// TODO: this also exists in decoder.hpp
-// Rename Decoder to CoDec and have most of this file be there.
-enum class OperandType { atom, literal, stack };
-
-void push_n(std::vector<unsigned char>& buf, std::int64_t val, std::size_t n) {
-    auto bits = static_cast<std::uint64_t>(val);
-    for (std::size_t i = 0; i < n; ++i) {
-        auto x = (bits >> (((n - 1) - i) * 8)) & 0xFF;
-        buf.push_back(static_cast<unsigned char>(x));
-    }
-};
-
-void write_n(std::vector<unsigned char>& buf, std::size_t at, std::uint64_t bits, std::size_t n) {
-    for (std::size_t i = 0; i < n; ++i) {
-        auto x = (bits >> (((n - 1) - i) * 8)) & 0xFF;
-        buf[at + i] = static_cast<unsigned char>(x);
-    }
-};
+#include "bytecoder.hpp"
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
@@ -49,11 +31,20 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
+    std::unordered_map<std::string, std::size_t> atoms;
+    auto encode_atom = [&atoms](std::string const& name) { return atoms.emplace(name, atoms.size()).first->second; };
+
     std::unordered_map<std::string, std::size_t> global_label_positions;
-    std::vector<std::string> atoms;
+    std::vector<bytecoder::Instruction> instructions;
     std::vector<std::pair<std::size_t, std::string>> unplaced_jumps;
-    std::vector<unsigned char> bytecode;
+
     int line_num = 0;
+    auto fail = [&line_num] [[noreturn]] (char const *msg) {
+        std::cerr << "Error at line " << line_num << ": " << msg << '\n';
+        std::exit(EXIT_FAILURE);
+    };
+
+    std::vector<std::size_t> instr_size_prefix_sum{0};
 
     while (true) {
         ++line_num;
@@ -66,87 +57,73 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        std::istringstream sline(line);
+
         if (line[0] != '\t') {
-            auto end = std::ranges::find(line, ':');
-            global_label_positions[std::string(line.begin(), end)] = bytecode.size();
+            std::string name;
+            sline >> name;
+            if (name.back() == ':') {
+                name.pop_back();
+                global_label_positions[std::move(name)] = instructions.size();
+                continue;
+            }
+            global_label_positions[name] = instructions.size();
+
+            std::vector<std::string> parameters;
+            std::string parameter;
+            while (sline >> parameter) {
+                parameters.push_back(std::move(parameter));
+            }
+            if (parameters.empty() or parameters.back().back() != ':') {
+                fail("Labels must end with ':'.");
+            }
+            parameters.back().pop_back();
             continue;
         }
 
-        std::istringstream sline(line);
-        std::string ms;
-        sline >> ms;
-        auto mnemonic = from_string(ms);
+        auto mnemonic = [&] {
+            std::string raw;
+            sline >> raw;
+            return from_string(raw);
+        }();
         if (not mnemonic) {
-            std::cerr << "Unknown mnemonic at line " << line_num << '\n';
-            return EXIT_FAILURE;
+            fail("Unknown mnemonic.");
         }
-        std::size_t i_opcode = bytecode.size();
-        bytecode.push_back(static_cast<unsigned char>(*mnemonic));
 
-        for (int i = 0; i < 2; ++i) {
-            std::int64_t val;
-            std::string str;
-
-            if (not(sline >> std::ws)) {
-                break;
+        auto operand = [&] -> std::optional<bytecoder::Operand> {
+            if (not(sline >> std::ws) or sline.peek() == ';') {
+                return std::nullopt;
             }
-
-            if (sline.peek() == ';') {
-                break;
-            }
-
-            bytecode[i_opcode] = bytecode[i_opcode] & 0b00111111;
 
             if (sline.peek() == '\'') {
                 sline.get();
-                sline >> str;
-
-                if (auto it = std::ranges::find(atoms, str); it != atoms.end()) {
-                    push_n(bytecode, static_cast<std::int64_t>(it - atoms.begin()), 8);
-                } else {
-                    push_n(bytecode, static_cast<std::int64_t>(atoms.size()), 8);
-                    atoms.push_back(str);
-                }
-
-                bytecode[i_opcode] |= static_cast<unsigned char>(OperandType::atom) << 6;
+                std::string name;
+                sline >> name;
+                std::uint64_t atom_index = encode_atom(name);
+                return bytecoder::Operand(bytecoder::OperandType::atom, bytecoder::size_from_unsigned(atom_index),
+                                          atom_index);
             } else if (sline.peek() == '[') {
                 sline.get();
-                sline >> val;
-                push_n(bytecode, val, 8);
+                std::uint64_t index;
+                sline >> index;
                 sline.get();
-                bytecode[i_opcode] |= static_cast<unsigned char>(OperandType::stack) << 6;
-            } else if (std::isdigit(sline.peek())) {
+                return bytecoder::Operand(bytecoder::OperandType::stack, bytecoder::size_from_unsigned(index), index);
+            } else if (std::isdigit(sline.peek()) or sline.peek() == '-') {
+                std::int64_t val;
                 sline >> val;
-                push_n(bytecode, val, 8);
-                bytecode[i_opcode] |= static_cast<unsigned char>(OperandType::literal) << 6;
+                // TODO: signedness depends on the mnemonic
+                auto size = bytecoder::size_from_signed(val);
+                return bytecoder::Operand(bytecoder::OperandType::literal, size, val);
             } else {
-                sline >> str;
-                unplaced_jumps.emplace_back(i_opcode, str);
-                switch (*mnemonic) {
-                    case Mnemonic::push:
-                    case Mnemonic::closure:
-                        push_n(bytecode, 0, 8);
-                        break;
-                    default:
-                        push_n(bytecode, 0, 2);
-                        break;
-                }
-                bytecode[i_opcode] |= static_cast<unsigned char>(OperandType::literal) << 6;
+                std::string jump_to_name;
+                sline >> jump_to_name;
+                unplaced_jumps.emplace_back(instructions.size(), jump_to_name);
+                return bytecoder::Operand(bytecoder::OperandType::literal, bytecoder::OperandSize::four_B, 0);
             }
-        }
-    }
+        }();
 
-    std::vector<unsigned char> prefix;
-    push_n(prefix, 0, 8);  // entry point slot
-
-    for (auto& atom : atoms) {
-        prefix.append_range(atom);
-        prefix.push_back('\0');
-    }
-    prefix.push_back('\0');
-
-    if (auto it = global_label_positions.find("main"); it != global_label_positions.end()) {
-        write_n(prefix, 0, prefix.size() + it->second, 8);
+        instructions.push_back(bytecoder::Instruction{*mnemonic, operand});
+        instr_size_prefix_sum.push_back(instr_size_prefix_sum.back() + bytecoder::instr_size(instructions.back()));
     }
 
     for (auto [from, to] : unplaced_jumps) {
@@ -156,27 +133,32 @@ int main(int argc, char *argv[]) {
             return EXIT_FAILURE;
         }
 
-        switch (Mnemonic(bytecode[from] & 0b00111111)) {
+        switch (instructions[from].mnemonic) {
             case Mnemonic::push:
-            case Mnemonic::closure:
-                // WARN: the plus 1 will make you suffer when multibyte opcodes are introduced.
-                write_n(bytecode, from + 1, prefix.size() + it->second, 8);
+            case Mnemonic::closure: {
+                auto ip = instr_size_prefix_sum[it->second];
+                instructions[from].operand =
+                    bytecoder::Operand(bytecoder::OperandType::literal, bytecoder::OperandSize::four_B, ip);
                 break;
+            }
             default:
-                // If you ever get the need to jump farther than 2^16 bits
-                // (which you will), here is the place to pick if a jump is near or far.
-                auto offset = it->second - from;
-                // WARN: the plus 1 will make you suffer when multibyte opcodes are introduced.
-                write_n(bytecode, from + 1, offset, 2);
+                auto offset = static_cast<std::int64_t>(instr_size_prefix_sum[it->second]) -
+                              static_cast<std::int64_t>(instr_size_prefix_sum[from]);
+                instructions[from].operand =
+                    bytecoder::Operand(bytecoder::OperandType::literal, bytecoder::OperandSize::four_B, offset);
         }
     }
 
-    for (auto b : prefix) {
-        out << b;
-    }
-    for (auto b : bytecode) {
-        out << b;
+    std::vector<std::string> ordered_atoms(atoms.size());
+    for (auto& [name, i] : atoms) {
+        ordered_atoms[i] = name;
     }
 
+    std::optional<InstrPtr> entry_point;
+    if (auto it = global_label_positions.find("main"); it != global_label_positions.end()) {
+        entry_point = InstrPtr(instr_size_prefix_sum[it->second]);
+    }
+
+    bytecoder::assemble(out, ordered_atoms, entry_point, instructions);
     std::cout << "Assembled.\n";
 }

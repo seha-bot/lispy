@@ -21,6 +21,7 @@ enum class Mnemonic {
     ret = 12,
     set = 13,
     print = 14,
+    // These two should not be string specific, but array specific.
     mkstr = 15,
     strpush = 16,
     closure = 17,
@@ -68,6 +69,7 @@ inline std::string to_string(Mnemonic m) {
         case Mnemonic::capture:
             return "capture";
     }
+    return "unknown";
 }
 
 inline std::optional<Mnemonic> from_string(std::string_view s) {
