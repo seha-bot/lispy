@@ -25,6 +25,14 @@ void magic_functions(Code& code) {
             code.lines[i] = Instruction{Mnemonic::cdr, std::nullopt};
         } else if (callee->name == "print") {
             code.lines[i] = Instruction{Mnemonic::print, std::nullopt};
+        } else if (callee->name == "+") {
+            code.lines[i] = Instruction{Mnemonic::iadd, std::nullopt};
+        } else if (callee->name == "-") {
+            code.lines[i] = Instruction{Mnemonic::ineg, std::nullopt};
+        } else if (callee->name == "<") {
+            code.lines[i] = Instruction{Mnemonic::iless, std::nullopt};
+        } else if (callee->name == "mod") {
+            code.lines[i] = Instruction{Mnemonic::imod, std::nullopt};
         }
     }
 }

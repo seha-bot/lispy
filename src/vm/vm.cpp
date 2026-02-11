@@ -331,6 +331,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
                 return std::unexpected(StepResult::stack_overrun);
             }
             obj::format_to(std::cout, mgr, m.unsafe_top());
+            std::cout << ' ' << std::flush;
             return ip.offset(dec.instr_size(Mnemonic::print));
         }
         case Mnemonic::mkstr:    // mkstr
@@ -360,6 +361,63 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
             }
             static_cast<obj::Closure&>(**obj).capture(*x);
             return ip.offset(dec.instr_size(Mnemonic::capture, operand));
+        }
+        // TODO: the int operations are repetitive.
+        case Mnemonic::iadd: {  // iadd
+            if (not m.has(2)) {
+                return std::unexpected(StepResult::stack_overrun);
+            }
+
+            auto rhs = std::get_if<obj::Number>(&m.unsafe_seek(0));
+            auto lhs = std::get_if<obj::Number>(&m.unsafe_seek(1));
+            if (not rhs or not lhs) {
+                return std::unexpected(StepResult::mismatched_type);
+            }
+            m.unsafe_pop();
+            m.unsafe_top() = obj::Number(lhs->value + rhs->value);
+            return ip.offset(dec.instr_size(Mnemonic::iadd));
+        }
+        case Mnemonic::ineg: {  // ineg
+            if (not m.has(2)) {
+                return std::unexpected(StepResult::stack_overrun);
+            }
+
+            auto rhs = std::get_if<obj::Number>(&m.unsafe_seek(0));
+            auto lhs = std::get_if<obj::Number>(&m.unsafe_seek(1));
+            if (not rhs or not lhs) {
+                return std::unexpected(StepResult::mismatched_type);
+            }
+            m.unsafe_pop();
+            m.unsafe_top() = obj::Number(lhs->value - rhs->value);
+            return ip.offset(dec.instr_size(Mnemonic::iadd));
+        }
+        case Mnemonic::iless: {  // iless
+            if (not m.has(2)) {
+                return std::unexpected(StepResult::stack_overrun);
+            }
+
+            auto rhs = std::get_if<obj::Number>(&m.unsafe_seek(0));
+            auto lhs = std::get_if<obj::Number>(&m.unsafe_seek(1));
+            if (not rhs or not lhs) {
+                return std::unexpected(StepResult::mismatched_type);
+            }
+            m.unsafe_pop();
+            m.unsafe_top() = obj::Number(lhs->value < rhs->value);
+            return ip.offset(dec.instr_size(Mnemonic::iadd));
+        }
+        case Mnemonic::imod: {  // imod
+            if (not m.has(2)) {
+                return std::unexpected(StepResult::stack_overrun);
+            }
+
+            auto rhs = std::get_if<obj::Number>(&m.unsafe_seek(0));
+            auto lhs = std::get_if<obj::Number>(&m.unsafe_seek(1));
+            if (not rhs or not lhs) {
+                return std::unexpected(StepResult::mismatched_type);
+            }
+            m.unsafe_pop();
+            m.unsafe_top() = obj::Number(lhs->value % rhs->value);
+            return ip.offset(dec.instr_size(Mnemonic::iadd));
         }
     }
 

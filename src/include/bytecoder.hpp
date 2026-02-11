@@ -76,6 +76,10 @@ std::size_t instr_size(Instruction instr) {
         case Mnemonic::pop:
         case Mnemonic::print:
         case Mnemonic::mkstr:
+        case Mnemonic::iadd:
+        case Mnemonic::ineg:
+        case Mnemonic::iless:
+        case Mnemonic::imod:
             return 1;
         case Mnemonic::jt:
         case Mnemonic::jf:

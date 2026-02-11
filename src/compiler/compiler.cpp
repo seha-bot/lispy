@@ -228,8 +228,8 @@ std::expected<Code, std::vector<StaticError>> compile_program(Program const& pro
             continue;
         }
 
-        env.label_cnt = 0;
-        env.stack_depth = 0;
+        // env.label_cnt = 0;
+        env.stack_depth = 0; // TODO: assert that this is 0 at the end.
         code.lines.push_back(Label{env.lambdas.at(&closure->source()).first});
         auto res = compile_closure(code.lines, env, *closure);
         if (not res) {

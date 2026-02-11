@@ -20,13 +20,13 @@ struct FreeDeleter {
 };
 
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: lispy <input_file>\n";
+    if (argc != 3) {
+        std::cerr << "Usage: lispy <dest> <source>\n";
         return EXIT_FAILURE;
     }
 
     auto source = [&] {
-        std::ifstream f(argv[1]);
+        std::ifstream f(argv[2]);
         if (not f) {
             throw std::runtime_error("file something");
         }
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
         return buffer.str();
     }();
 
-    std::ofstream output("/home/seha/repos/lispy/out.txt");
+    std::ofstream output(argv[1]);
     if (not output) {
         throw std::runtime_error("file something");
     }
