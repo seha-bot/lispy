@@ -389,7 +389,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
             }
             m.unsafe_pop();
             m.unsafe_top() = obj::Number(lhs->value - rhs->value);
-            return ip.offset(dec.instr_size(Mnemonic::iadd));
+            return ip.offset(dec.instr_size(Mnemonic::ineg));
         }
         case Mnemonic::iless: {  // iless
             if (not m.has(2)) {
@@ -403,7 +403,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
             }
             m.unsafe_pop();
             m.unsafe_top() = obj::Number(lhs->value < rhs->value);
-            return ip.offset(dec.instr_size(Mnemonic::iadd));
+            return ip.offset(dec.instr_size(Mnemonic::iless));
         }
         case Mnemonic::imod: {  // imod
             if (not m.has(2)) {
@@ -417,7 +417,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
             }
             m.unsafe_pop();
             m.unsafe_top() = obj::Number(lhs->value % rhs->value);
-            return ip.offset(dec.instr_size(Mnemonic::iadd));
+            return ip.offset(dec.instr_size(Mnemonic::imod));
         }
     }
 
