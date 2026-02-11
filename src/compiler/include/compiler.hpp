@@ -14,7 +14,7 @@
 namespace compiler {
 
 struct AtomOperand {
-    friend std::ostream& operator<<(std::ostream& os, AtomOperand const& x) { return os << x.name; }
+    friend std::ostream& operator<<(std::ostream& os, AtomOperand const& x) { return os << '\'' << x.name; }
     std::string name;
 };
 

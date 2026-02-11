@@ -7,6 +7,7 @@
 
 #include "compiler/include/compiler.hpp"
 #include "compiler/include/explorer.hpp"
+#include "compiler/include/optimizer.hpp"
 #include "parser/include/parser.hpp"
 
 extern "C" {
@@ -62,6 +63,8 @@ int main(int argc, char *argv[]) {
         }
         return EXIT_FAILURE;
     }
+
+    compiler::optimizer::optimize(*code_res);
 
     output << *code_res;
 

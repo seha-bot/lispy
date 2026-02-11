@@ -12,15 +12,8 @@
     init
     (foldl f (f init (car xs)) (cdr xs))))
 
-(define (flip f)
-  (lambda (x y)
-    (f y x)))
-
 (define (reverse xs)
-  (foldl (flip cons) 'NIL xs))
-
-;; (define (reverse xs)
-;;   (foldl (lambda (acc x) (cons x acc)) 'NIL xs))
+  (foldl (lambda (acc x) (cons x acc)) 'NIL xs))
 
 (define (main)
   (print (reverse '(1 2 3))))
