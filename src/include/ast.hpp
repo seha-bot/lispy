@@ -21,6 +21,9 @@ struct Source {
 struct Expr {
     Expr(Source source) : m_source(source) {}
 
+    Expr(Expr const&) = delete;
+    Expr& operator=(Expr const&) = delete;
+
     virtual ~Expr() = default;
     virtual std::string format() const = 0;
     virtual ExprType type() const = 0;

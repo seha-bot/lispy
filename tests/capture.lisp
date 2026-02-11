@@ -1,0 +1,8 @@
+(define (f x)
+    ;; (define (a) x)
+    (define (a) 0)
+    (define (g y)
+        (define (b) x)
+        (define (c) (a))
+        0)
+    0)

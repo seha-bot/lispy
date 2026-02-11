@@ -41,8 +41,7 @@ static void compile_quote(std::vector<Line>& lines, ast::Expr& expr) {
 }
 
 struct Env {
-    std::unordered_map<ast::Expr *, Closure const *> closures;
-    std::unordered_map<Closure const *, std::string> closure_names;
+    std::unordered_map<ast::Expr *, std::pair<std::string, Closure const *>> lambdas;
     std::size_t label_cnt = 0;
     std::size_t stack_depth = 0;
 };
@@ -53,7 +52,8 @@ static std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, E
         case ast::ExprType::atom: {
             auto& atom = static_cast<ast::Atom&>(expr);
             if (closure.is_local(atom.value)) {
-                lines.push_back(Instruction{Mnemonic::push, StackOperand{closure.index_header(atom.value)}});
+                lines.push_back(
+                    Instruction{Mnemonic::push, StackOperand{env.stack_depth + closure.index_header(atom.value)}});
             } else {
                 lines.push_back(Instruction{Mnemonic::push, LabelOperand{atom.value}});
             }
@@ -100,8 +100,7 @@ static std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, E
                         compile_quote(lines, *list.elements[1]);
                         return {};
                     } else if (callee == "lambda") {
-                        auto *subclosure = env.closures.at(&list);
-                        auto& name = env.closure_names.at(subclosure);
+                        auto& [name, subclosure] = env.lambdas.at(&list);
                         auto captures = subclosure->captures();
 
                         // TODO: maybe this should go into the optimizer step, but idk.
@@ -111,7 +110,8 @@ static std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, E
                             lines.push_back(Instruction{Mnemonic::closure, LabelOperand{name}});
                             for (auto& capture : captures) {
                                 lines.push_back(
-                                    Instruction{Mnemonic::capture, StackOperand{closure.index_header(capture)}});
+                                    Instruction{Mnemonic::capture,
+                                                StackOperand{env.stack_depth + 1 + closure.index_header(capture)}});
                             }
                         }
                         return {};
@@ -127,13 +127,15 @@ static std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, E
                             }
                             env.stack_depth += 1;
                         }
-                        env.stack_depth = old_depth;
 
                         if (closure.is_local(callee)) {
-                            lines.push_back(Instruction{Mnemonic::indcall, StackOperand{closure.index_header(callee)}});
+                            lines.push_back(Instruction{Mnemonic::indcall,
+                                                        StackOperand{env.stack_depth + closure.index_header(callee)}});
                         } else {
                             lines.push_back(Instruction{Mnemonic::call, LabelOperand{callee}});
                         }
+                        env.stack_depth = old_depth;
+
                         return {};
                     }
                 }
@@ -172,13 +174,13 @@ static std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, E
 }
 
 static std::expected<void, StaticError> compile_closure(std::vector<Line>& lines, Env& env, Closure const& closure) {
-    auto& list = closure.owner();
+    auto& list = closure.source();
     for (std::size_t i = 2; i < list.elements.size(); ++i) {
         auto res = compile_expr(lines, env, closure, *list.elements[i]);
         if (not res) {
             return std::unexpected(res.error());
         }
-        lines.push_back(Instruction{Mnemonic::pop, LiteralOperand{1}});
+        lines.push_back(Instruction{Mnemonic::pop});
     }
     lines.pop_back();
 
@@ -194,28 +196,33 @@ static std::expected<void, StaticError> compile_closure(std::vector<Line>& lines
 
 std::expected<Code, std::vector<StaticError>> compile_program(Program const& program) {
     Env env;
-    for (auto& closure : program.closures) {
-        env.closures[&closure.owner()] = &closure;
-    }
-    for (auto& [name, expr] : program.bound_names) {
-        if (env.closures.contains(expr)) {
-            env.closure_names[env.closures[expr]] = name;
-        }
-    }
     int cnt = 0;
     for (auto& closure : program.closures) {
-        if (not env.closure_names.contains(&closure)) {
-            env.closure_names[&closure] = "lam" + std::to_string(cnt++);
+        if (not closure->parent()) {
+            continue;
         }
+
+        std::string name = [&closure, &cnt] {
+            if (auto def_name = closure->parent()->name_for(*closure)) {
+                return *def_name;
+            } else {
+                return "lam" + std::to_string(cnt++);
+            }
+        }();
+        env.lambdas.insert({&closure->source(), {name, closure.get()}});
     }
 
     Code code;
     std::vector<StaticError> errors;
     for (auto& closure : program.closures) {
+        if (not closure->parent()) {
+            continue;
+        }
+
         env.label_cnt = 0;
         env.stack_depth = 0;
-        code.lines.push_back(Label{env.closure_names.at(&closure)});
-        auto res = compile_closure(code.lines, env, closure);
+        code.lines.push_back(Label{env.lambdas.at(&closure->source()).first});
+        auto res = compile_closure(code.lines, env, *closure);
         if (not res) {
             errors.push_back(res.error());
         }
