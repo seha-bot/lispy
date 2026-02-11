@@ -1,6 +1,6 @@
-#include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -12,6 +12,8 @@
 #include <vector>
 
 #include "bytecoder.hpp"
+#include "instr_ptr.hpp"
+#include "mnemonic.hpp"
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
@@ -99,17 +101,17 @@ int main(int argc, char *argv[]) {
                 sline.get();
                 std::string name;
                 sline >> name;
-                std::uint64_t atom_index = encode_atom(name);
+                std::uint64_t const atom_index = encode_atom(name);
                 return bytecoder::Operand(bytecoder::OperandType::atom, bytecoder::size_from_unsigned(atom_index),
                                           atom_index);
             } else if (sline.peek() == '[') {
                 sline.get();
-                std::uint64_t index;
+                std::uint64_t index = 0;
                 sline >> index;
                 sline.get();
                 return bytecoder::Operand(bytecoder::OperandType::stack, bytecoder::size_from_unsigned(index), index);
             } else if (std::isdigit(sline.peek()) or sline.peek() == '-') {
-                std::int64_t val;
+                std::int64_t val = 0;
                 sline >> val;
                 // TODO: signedness depends on the mnemonic
                 auto size = bytecoder::size_from_signed(val);

@@ -42,21 +42,22 @@ private:
 using ExprPtr = std::unique_ptr<Expr>;
 
 struct Atom : Expr {
-    Atom(std::string value, Source source) : Expr(source), value(std::move(value)) {}
+    Atom(std::string value, Source source) : Expr(source), m_name(std::move(value)) {}
 
-    std::string format() const override { return value; }
+    std::string format() const override { return m_name; }
     ExprType type() const override { return ExprType::atom; }
+    std::string const& name() const { return m_name; }
 
-    // TODO: make readonly and rename to name
-    std::string value;
+private:
+    std::string m_name;
 };
 
 struct List : Expr {
-    List(std::vector<ExprPtr> list, Source source) : Expr(source), elements(std::move(list)) {}
+    List(std::vector<ExprPtr> list, Source source) : Expr(source), m_elements(std::move(list)) {}
 
     std::string format() const override {
         std::string r = "(";
-        r.append_range(elements                                                            //
+        r.append_range(m_elements                                                          //
                        | std::views::transform([](auto const& x) { return x->format(); })  //
                        | std::views::join_with(' '));
         r.push_back(')');
@@ -64,26 +65,34 @@ struct List : Expr {
     }
 
     ExprType type() const override { return ExprType::list; }
+    bool empty() const { return m_elements.empty(); }
+    std::size_t size() const { return m_elements.size(); }
+    std::vector<ExprPtr> const& elements() const { return m_elements; }
+    Expr& operator[](std::size_t i) const { return *m_elements[i]; }
 
-    std::vector<ExprPtr> elements;
+private:
+    std::vector<ExprPtr> m_elements;
 };
 
 struct Number : Expr {
-    Number(std::int64_t value, Source source) : Expr(source), value(value) {}
+    Number(std::int64_t value, Source source) : Expr(source), m_value(value) {}
 
-    std::string format() const override { return std::to_string(value); }
+    std::string format() const override { return std::to_string(m_value); }
     ExprType type() const override { return ExprType::number; }
+    std::int64_t value() const { return m_value; }
 
-    std::int64_t value;
+private:
+    std::int64_t m_value;
 };
 
 struct String : Expr {
-    String(std::string value, Source source) : Expr(source), value(std::move(value)) {}
+    String(std::string value, Source source) : Expr(source), m_value(std::move(value)) {}
 
-    std::string format() const override { return '"' + value + '"'; }
+    std::string format() const override { return '"' + m_value + '"'; }
     ExprType type() const override { return ExprType::string; }
 
-    std::string value;
+private:
+    std::string m_value;
 };
 
 }  // namespace ast

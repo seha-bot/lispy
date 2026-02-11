@@ -16,15 +16,15 @@ void magic_functions(Code& code) {
             continue;
         }
         if (callee->name == "eq") {
-            code.lines[i] = Instruction{Mnemonic::eq};
+            code.lines[i] = Instruction{Mnemonic::eq, std::nullopt};
         } else if (callee->name == "cons") {
-            code.lines[i] = Instruction{Mnemonic::cons};
+            code.lines[i] = Instruction{Mnemonic::cons, std::nullopt};
         } else if (callee->name == "car") {
-            code.lines[i] = Instruction{Mnemonic::car};
+            code.lines[i] = Instruction{Mnemonic::car, std::nullopt};
         } else if (callee->name == "cdr") {
-            code.lines[i] = Instruction{Mnemonic::cdr};
+            code.lines[i] = Instruction{Mnemonic::cdr, std::nullopt};
         } else if (callee->name == "print") {
-            code.lines[i] = Instruction{Mnemonic::print};
+            code.lines[i] = Instruction{Mnemonic::print, std::nullopt};
         }
     }
 }

@@ -3,13 +3,19 @@
 #include <cctype>
 #include <charconv>
 #include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
-[[noreturn]] static void todo() { throw std::runtime_error("unimplemented"); }
+#include "ast.hpp"
+
+namespace {
 
 enum class TokenType {
     unknown,
@@ -60,7 +66,7 @@ struct Lexer {
                 }
             }
 
-            char first;
+            char first = 0;
             {
                 auto r = peek();
                 if (not r) {
@@ -125,7 +131,7 @@ private:
         }
         Token tok(m_input.begin() + m_state.position, m_input.begin() + m_state.position + 1, TokenType::unknown,
                   m_state.line, m_state.col);
-        char c = m_input[m_state.position++];
+        char const c = m_input[m_state.position++];
         if (c == '\n') {
             m_state.line += 1;
             m_state.col = 0;
@@ -164,7 +170,7 @@ private:
     ast::Source m_state;
 };
 
-static std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) {
+std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) {
     auto const token = lex.next_token();
     if (not token) {
         return std::unexpected(token.error());
@@ -211,7 +217,7 @@ static std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) {
             return std::make_unique<ast::Atom>(std::string(token->text()), source_location);
         case TokenType::number: {
             // TODO: what if the number doesn't fit
-            std::int64_t v;
+            std::int64_t v = 0;
             auto const text = token->text();
             std::from_chars(text.data(), text.data() + text.size(), v);
             return std::make_unique<ast::Number>(v, source_location);
@@ -220,6 +226,8 @@ static std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) {
             return std::make_unique<ast::String>(std::string(token->text()), source_location);
     }
 }
+
+}  // namespace
 
 std::expected<std::vector<ast::ExprPtr>, ParseError> run_parser(std::string_view input) {
     Lexer lex(input);

@@ -1,14 +1,22 @@
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <expected>
 #include <fstream>
 #include <iostream>
-#include <string>
+#include <optional>
+#include <stdexcept>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "bytecoder.hpp"
+#include "gc.hpp"
+#include "instr_ptr.hpp"
+#include "mnemonic.hpp"
 #include "object.hpp"
+
+namespace {
 
 struct Machine {
     obj::Object& unsafe_seek(std::size_t i) { return m_stack.at(m_stack.size() - 1 - static_cast<std::size_t>(i)); }
@@ -43,7 +51,7 @@ enum class StepResult {
     corrupted_opcode,
 };
 
-static std::ostream& operator<<(std::ostream& os, StepResult sr) {
+std::ostream& operator<<(std::ostream& os, StepResult sr) {
     switch (sr) {
         case StepResult::stack_overrun:
             return os << "stack_overrun";
@@ -56,8 +64,8 @@ static std::ostream& operator<<(std::ostream& os, StepResult sr) {
     }
 }
 
-static std::expected<obj::Object, StepResult> fetch_object(Machine& m, bytecoder::Operand op) {
-    switch (op.type) {
+std::expected<obj::Object, StepResult> fetch_object(Machine& m, bytecoder::Operand op) {
+    switch (op.type()) {
         case bytecoder::OperandType::atom:
             return obj::Atom{static_cast<std::size_t>(op.value_unsigned())};
         case bytecoder::OperandType::literal:
@@ -74,15 +82,15 @@ static std::expected<obj::Object, StepResult> fetch_object(Machine& m, bytecoder
     return std::unexpected(StepResult::corrupted_opcode);
 }
 
-static std::expected<std::int64_t, StepResult> fetch_literal_signed(bytecoder::Operand op) {
-    if (op.type == bytecoder::OperandType::literal) {
+std::expected<std::int64_t, StepResult> fetch_literal_signed(bytecoder::Operand op) {
+    if (op.type() == bytecoder::OperandType::literal) {
         return op.value_signed();
     }
     return std::unexpected(StepResult::mismatched_type);
 }
 
-static std::expected<std::uint64_t, StepResult> fetch_literal_unsigned(bytecoder::Operand op) {
-    if (op.type == bytecoder::OperandType::literal) {
+std::expected<std::uint64_t, StepResult> fetch_literal_unsigned(bytecoder::Operand op) {
+    if (op.type() == bytecoder::OperandType::literal) {
         return op.value_unsigned();
     }
     return std::unexpected(StepResult::mismatched_type);
@@ -100,7 +108,7 @@ struct Decoder {
     bytecoder::Bytecode bc;
 };
 
-static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine& m, Decoder& dec, InstrPtr ip) {
+std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine& m, Decoder& dec, InstrPtr ip) {
     auto opcode = dec.opcode(ip);
     switch (opcode) {
         case Mnemonic::eq: {  // eq
@@ -325,35 +333,14 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
             obj::format_to(std::cout, mgr, m.unsafe_top());
             return ip.offset(dec.instr_size(Mnemonic::print));
         }
-        case Mnemonic::mkstr: {  // mkstr
+        case Mnemonic::mkstr:    // mkstr
+        case Mnemonic::strpush:  // strpush c
             throw std::runtime_error("unimplemented");
-            // m.push(obj::String::make(gc, "").get());
-            // return ip.offset(dec.instr_size(ip));
-        }
-        case Mnemonic::strpush: {  // strpush c
-            throw std::runtime_error("unimplemented");
-            // auto c = fetch_literal(dec.operand1(ip));
-            // if (not c) {
-            //     return std::unexpected(c.error());
-            // }
-            // if (not m.has(1)) {
-            //     return std::unexpected(StepResult::stack_overrun);
-            // }
-            // auto str = std::get_if<obj::DynObj *>(&m.unsafe_top());
-            // if (not str or (*str)->type() != obj::DynObjType::string) {
-            //     return std::unexpected(StepResult::mismatched_type);
-            // }
-            // static_cast<obj::String&>(**str).push(static_cast<char>(*c));
-            // return ip.offset(dec.instr_size(ip));
-        }
         case Mnemonic::closure: {  // closure lam_ip
             auto operand = dec.operand(ip);
             auto lam_ip = fetch_literal_unsigned(operand);
             if (not lam_ip) {
                 return std::unexpected(lam_ip.error());
-            }
-            if (*lam_ip < 0) {
-                throw "unimplemented";
             }
             m.push(obj::Closure::make(gc, InstrPtr(static_cast<std::size_t>(*lam_ip))).get());
             return ip.offset(dec.instr_size(Mnemonic::closure, operand));
@@ -378,6 +365,8 @@ static std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, M
 
     return std::unexpected(StepResult::corrupted_opcode);
 }
+
+}  // namespace
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {

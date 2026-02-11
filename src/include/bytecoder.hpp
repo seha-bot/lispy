@@ -48,17 +48,17 @@ std::size_t size_value(OperandSize size) { return std::size_t(1) << static_cast<
 
 struct Operand {
     Operand(OperandType type, OperandSize size, auto value)
-        : type(type), size(size), m_value(static_cast<std::uint64_t>(value)) {}
+        : m_type(type), m_size(size), m_value(static_cast<std::uint64_t>(value)) {}
 
-    std::size_t size_value() const { return bytecoder::size_value(size); }
-
-    OperandType type{};
-    OperandSize size{};
-
+    std::size_t size_value() const { return bytecoder::size_value(m_size); }
     std::int64_t value_signed() const { return static_cast<std::int64_t>(m_value); }
     std::uint64_t value_unsigned() const { return m_value; }
+    OperandType type() const { return m_type; }
+    OperandSize size() const { return m_size; }
 
 private:
+    OperandType m_type{};
+    OperandSize m_size{};
     std::uint64_t m_value{};
 };
 
@@ -120,8 +120,8 @@ void assemble(std::ostream& os, std::vector<std::string> const& atoms, std::opti
             // |  size
             // type
             std::uint8_t operand_data = 0;
-            operand_data |= static_cast<unsigned>(operand->type) << 6;
-            operand_data |= static_cast<unsigned>(operand->size) << 4;
+            operand_data |= static_cast<std::uint8_t>(static_cast<unsigned>(operand->type()) << 6);
+            operand_data |= static_cast<std::uint8_t>(static_cast<unsigned>(operand->size()) << 4);
             write_n(operand_data, 1);
             write_n(operand->value_unsigned(), operand->size_value());
         }

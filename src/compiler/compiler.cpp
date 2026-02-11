@@ -1,26 +1,34 @@
 #include "compiler.hpp"
 
-#include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "ast.hpp"
+#include "explorer.hpp"
+#include "mnemonic.hpp"
 
 namespace compiler {
 
-[[noreturn]] static void todo() { throw std::runtime_error("unimplemented"); }
+namespace {
 
-static void compile_quote(std::vector<Line>& lines, ast::Expr& expr) {
+[[noreturn]] void todo() { throw std::runtime_error("unimplemented"); }
+
+void compile_quote(std::vector<Line>& lines, ast::Expr& expr) {
     switch (expr.type()) {
         case ast::ExprType::atom: {
             auto& atom = static_cast<ast::Atom&>(expr);
-            lines.push_back(Instruction{Mnemonic::push, AtomOperand{atom.value}});
+            lines.push_back(Instruction{Mnemonic::push, AtomOperand{atom.name()}});
             break;
         }
         case ast::ExprType::list: {
-            auto& list = static_cast<ast::List&>(expr).elements;
+            auto& list = static_cast<ast::List&>(expr).elements();
             for (auto& e : list) {
                 compile_quote(lines, *e);
             }
@@ -32,7 +40,7 @@ static void compile_quote(std::vector<Line>& lines, ast::Expr& expr) {
         }
         case ast::ExprType::number: {
             auto& number = static_cast<ast::Number&>(expr);
-            lines.push_back(Instruction{Mnemonic::push, LiteralOperand{number.value}});
+            lines.push_back(Instruction{Mnemonic::push, LiteralOperand{number.value()}});
             break;
         }
         case ast::ExprType::string:
@@ -46,58 +54,58 @@ struct Env {
     std::size_t stack_depth = 0;
 };
 
-static std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env, Closure const& closure,
-                                                     ast::Expr& expr) {
+std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env, Closure const& closure,
+                                              ast::Expr& expr) {
     switch (expr.type()) {
         case ast::ExprType::atom: {
             auto& atom = static_cast<ast::Atom&>(expr);
-            if (closure.is_local(atom.value)) {
+            if (closure.is_local(atom.name())) {
                 lines.push_back(
-                    Instruction{Mnemonic::push, StackOperand{env.stack_depth + closure.index_header(atom.value)}});
+                    Instruction{Mnemonic::push, StackOperand{env.stack_depth + closure.index_header(atom.name())}});
             } else {
-                lines.push_back(Instruction{Mnemonic::push, LabelOperand{atom.value}});
+                lines.push_back(Instruction{Mnemonic::push, LabelOperand{atom.name()}});
             }
             return {};
         }
         case ast::ExprType::list: {
             auto& list = static_cast<ast::List&>(expr);
-            if (list.elements.empty()) {
+            if (list.empty()) {
                 lines.push_back(Instruction{Mnemonic::push, AtomOperand{"NIL"}});
                 return {};
             }
 
-            switch (list.elements[0]->type()) {
+            switch (list[0].type()) {
                 case ast::ExprType::atom: {
-                    auto& callee = static_cast<ast::Atom&>(*list.elements[0]).value;
+                    auto& callee = static_cast<ast::Atom&>(list[0]).name();
 
                     if (callee == "if") {
-                        if (list.elements.size() != 4) {
+                        if (list.size() != 4) {
                             // return CompilationResult::incorrect_arity;
                             todo();
                         }
 
-                        if (auto cond = compile_expr(lines, env, closure, *list.elements[1]); not cond) {
+                        if (auto cond = compile_expr(lines, env, closure, list[1]); not cond) {
                             return cond;
                         }
                         auto label_false = env.label_cnt++;
                         lines.push_back(Instruction{Mnemonic::jf, LocalLabelOperand{label_false}});
-                        if (auto then = compile_expr(lines, env, closure, *list.elements[2]); not then) {
+                        if (auto then = compile_expr(lines, env, closure, list[2]); not then) {
                             return then;
                         }
                         auto label_end = env.label_cnt++;
                         lines.push_back(Instruction{Mnemonic::jmp, LocalLabelOperand{label_end}});
                         lines.push_back(LocalLabel{label_false});
-                        if (auto else_ = compile_expr(lines, env, closure, *list.elements[3]); not else_) {
+                        if (auto else_ = compile_expr(lines, env, closure, list[3]); not else_) {
                             return else_;
                         }
                         lines.push_back(LocalLabel{label_end});
                         return {};
                     } else if (callee == "quote") {
-                        if (list.elements.size() != 2) {
+                        if (list.size() != 2) {
                             // return CompilationResult::incorrect_arity;
                             todo();
                         }
-                        compile_quote(lines, *list.elements[1]);
+                        compile_quote(lines, list[1]);
                         return {};
                     } else if (callee == "lambda") {
                         auto& [name, subclosure] = env.lambdas.at(&list);
@@ -120,8 +128,8 @@ static std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, E
                         return {};
                     } else {
                         auto old_depth = env.stack_depth;
-                        for (std::size_t i = 1; i < list.elements.size(); ++i) {
-                            auto res = compile_expr(lines, env, closure, *list.elements[i]);
+                        for (std::size_t i = 1; i < list.size(); ++i) {
+                            auto res = compile_expr(lines, env, closure, list[i]);
                             if (not res) {
                                 return std::unexpected(res.error());
                             }
@@ -141,14 +149,14 @@ static std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, E
                 }
                 case ast::ExprType::list: {
                     auto old_depth = env.stack_depth;
-                    for (std::size_t i = 1; i < list.elements.size(); ++i) {
-                        auto res = compile_expr(lines, env, closure, *list.elements[i]);
+                    for (std::size_t i = 1; i < list.size(); ++i) {
+                        auto res = compile_expr(lines, env, closure, list[i]);
                         if (not res) {
                             return std::unexpected(res.error());
                         }
                         env.stack_depth += 1;
                     }
-                    auto res = compile_expr(lines, env, closure, *list.elements[0]);
+                    auto res = compile_expr(lines, env, closure, list[0]);
                     if (not res) {
                         return std::unexpected(res.error());
                     }
@@ -158,14 +166,13 @@ static std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, E
                     return {};
                 }
                 case ast::ExprType::number:
-                    todo();
                 case ast::ExprType::string:
                     todo();
             }
         }
         case ast::ExprType::number: {
             auto& number = static_cast<ast::Number&>(expr);
-            lines.push_back(Instruction{Mnemonic::push, LiteralOperand{number.value}});
+            lines.push_back(Instruction{Mnemonic::push, LiteralOperand{number.value()}});
             return {};
         }
         case ast::ExprType::string:
@@ -173,14 +180,14 @@ static std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, E
     }
 }
 
-static std::expected<void, StaticError> compile_closure(std::vector<Line>& lines, Env& env, Closure const& closure) {
+std::expected<void, StaticError> compile_closure(std::vector<Line>& lines, Env& env, Closure const& closure) {
     auto& list = closure.source();
-    for (std::size_t i = 2; i < list.elements.size(); ++i) {
-        auto res = compile_expr(lines, env, closure, *list.elements[i]);
+    for (std::size_t i = 2; i < list.size(); ++i) {
+        auto res = compile_expr(lines, env, closure, list[i]);
         if (not res) {
             return std::unexpected(res.error());
         }
-        lines.push_back(Instruction{Mnemonic::pop});
+        lines.push_back(Instruction{Mnemonic::pop, std::nullopt});
     }
     lines.pop_back();
 
@@ -193,6 +200,8 @@ static std::expected<void, StaticError> compile_closure(std::vector<Line>& lines
     }
     return {};
 }
+
+}  // namespace
 
 std::expected<Code, std::vector<StaticError>> compile_program(Program const& program) {
     Env env;
@@ -209,7 +218,7 @@ std::expected<Code, std::vector<StaticError>> compile_program(Program const& pro
                 return "lam" + std::to_string(cnt++);
             }
         }();
-        env.lambdas.insert({&closure->source(), {name, closure.get()}});
+        env.lambdas.insert({&closure->source(), {std::move(name), closure.get()}});
     }
 
     Code code;
