@@ -28,7 +28,7 @@ void magic_functions(Code& code) {
         } else if (callee->name == "+") {
             code.lines[i] = Instruction{Mnemonic::iadd, std::nullopt};
         } else if (callee->name == "-") {
-            code.lines[i] = Instruction{Mnemonic::ineg, std::nullopt};
+            code.lines[i] = Instruction{Mnemonic::isub, std::nullopt};
         } else if (callee->name == "<") {
             code.lines[i] = Instruction{Mnemonic::iless, std::nullopt};
         } else if (callee->name == "mod") {
@@ -60,9 +60,47 @@ void push_pop(Code& code) {
     code.lines = std::move(res.lines);
 }
 
+void push_set(Code& code) {
+    if (code.lines.empty()) {
+        return;
+    }
+
+    // push [x]
+    // set x + 1
+
+    Code res;
+    for (std::size_t i = 0; i + 1 < code.lines.size(); ++i) {
+        auto *push = std::get_if<Instruction>(&code.lines[i]);
+        if (not push or push->mnemonic != Mnemonic::push) {
+            res.lines.push_back(code.lines[i]);
+            continue;
+        }
+        auto *push_operand = std::get_if<StackOperand>(&*push->operand);
+        if (not push_operand) {
+            res.lines.push_back(code.lines[i]);
+            continue;
+        }
+
+        auto *set = std::get_if<Instruction>(&code.lines[i + 1]);
+        if (not set or set->mnemonic != Mnemonic::set) {
+            res.lines.push_back(code.lines[i]);
+            continue;
+        }
+        auto *set_operand = std::get_if<LiteralOperand>(&*set->operand);
+        if (not set_operand or push_operand->i + 1 != static_cast<std::size_t>(set_operand->value)) {
+            res.lines.push_back(code.lines[i]);
+            continue;
+        }
+        ++i;
+    }
+    res.lines.push_back(code.lines.back());
+    code.lines = std::move(res.lines);
+}
+
 void optimize(Code& code) {
     magic_functions(code);
     push_pop(code);
+    push_set(code);
 }
 
 }  // namespace compiler::optimizer

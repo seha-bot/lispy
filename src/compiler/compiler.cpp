@@ -55,7 +55,7 @@ struct Env {
 };
 
 std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env, Closure const& closure,
-                                              ast::Expr& expr) {
+                                              ast::Expr& expr, bool is_root) {
     switch (expr.type()) {
         case ast::ExprType::atom: {
             auto& atom = static_cast<ast::Atom&>(expr);
@@ -84,18 +84,18 @@ std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env
                             todo();
                         }
 
-                        if (auto cond = compile_expr(lines, env, closure, list[1]); not cond) {
+                        if (auto cond = compile_expr(lines, env, closure, list[1], false); not cond) {
                             return cond;
                         }
                         auto label_false = env.label_cnt++;
                         lines.push_back(Instruction{Mnemonic::jf, LocalLabelOperand{label_false}});
-                        if (auto then = compile_expr(lines, env, closure, list[2]); not then) {
+                        if (auto then = compile_expr(lines, env, closure, list[2], is_root); not then) {
                             return then;
                         }
                         auto label_end = env.label_cnt++;
                         lines.push_back(Instruction{Mnemonic::jmp, LocalLabelOperand{label_end}});
                         lines.push_back(LocalLabel{label_false});
-                        if (auto else_ = compile_expr(lines, env, closure, list[3]); not else_) {
+                        if (auto else_ = compile_expr(lines, env, closure, list[3], is_root); not else_) {
                             return else_;
                         }
                         lines.push_back(LocalLabel{label_end});
@@ -127,20 +127,30 @@ std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env
                         lines.push_back(Instruction{Mnemonic::push, AtomOperand{"NIL"}});
                         return {};
                     } else {
+                        bool const tco_eligible = is_root and env.lambdas.at(&closure.source()).first == callee;
                         auto old_depth = env.stack_depth;
                         for (std::size_t i = 1; i < list.size(); ++i) {
-                            auto res = compile_expr(lines, env, closure, list[i]);
-                            if (not res) {
-                                return std::unexpected(res.error());
+                            auto arg = compile_expr(lines, env, closure, list[i], false);
+                            if (not arg) {
+                                return std::unexpected(arg.error());
                             }
-                            env.stack_depth += 1;
+                            if (tco_eligible) {
+                                lines.push_back(Instruction{Mnemonic::set, LiteralOperand{static_cast<std::int64_t>(
+                                                                               closure.header_size() - i + 1)}});
+                            } else {
+                                env.stack_depth += 1;
+                            }
                         }
 
                         if (closure.is_local(callee)) {
                             lines.push_back(Instruction{Mnemonic::indcall,
                                                         StackOperand{env.stack_depth + closure.index_header(callee)}});
                         } else {
-                            lines.push_back(Instruction{Mnemonic::call, LabelOperand{callee}});
+                            if (tco_eligible) {
+                                lines.push_back(Instruction{Mnemonic::jmp, LabelOperand{callee}});
+                            } else {
+                                lines.push_back(Instruction{Mnemonic::call, LabelOperand{callee}});
+                            }
                         }
                         env.stack_depth = old_depth;
 
@@ -150,13 +160,13 @@ std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env
                 case ast::ExprType::list: {
                     auto old_depth = env.stack_depth;
                     for (std::size_t i = 1; i < list.size(); ++i) {
-                        auto res = compile_expr(lines, env, closure, list[i]);
+                        auto res = compile_expr(lines, env, closure, list[i], false);
                         if (not res) {
                             return std::unexpected(res.error());
                         }
                         env.stack_depth += 1;
                     }
-                    auto res = compile_expr(lines, env, closure, list[0]);
+                    auto res = compile_expr(lines, env, closure, list[0], false);
                     if (not res) {
                         return std::unexpected(res.error());
                     }
@@ -185,7 +195,7 @@ std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env
 std::expected<void, StaticError> compile_closure(std::vector<Line>& lines, Env& env, Closure const& closure) {
     auto& list = closure.source();
     for (std::size_t i = 2; i < list.size(); ++i) {
-        auto res = compile_expr(lines, env, closure, list[i]);
+        auto res = compile_expr(lines, env, closure, list[i], i == list.size() - 1);
         if (not res) {
             return std::unexpected(res.error());
         }
@@ -197,8 +207,7 @@ std::expected<void, StaticError> compile_closure(std::vector<Line>& lines, Env& 
         lines.push_back(Instruction{Mnemonic::ret, LiteralOperand{0}});
     } else {
         auto n_elements = static_cast<std::int64_t>(closure.header_size());
-        lines.push_back(Instruction{Mnemonic::set, LiteralOperand{n_elements}});
-        lines.push_back(Instruction{Mnemonic::ret, LiteralOperand{n_elements - 1}});
+        lines.push_back(Instruction{Mnemonic::setret, LiteralOperand{n_elements}});
     }
     return {};
 }

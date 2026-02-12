@@ -27,9 +27,10 @@ enum class Mnemonic {
     closure = 17,
     capture = 18,
     iadd = 19,
-    ineg = 20,
+    isub = 20,
     iless = 21,
     imod = 22,
+    setret = 23,
 };
 
 inline std::string to_string(Mnemonic m) {
@@ -74,12 +75,14 @@ inline std::string to_string(Mnemonic m) {
             return "capture";
         case Mnemonic::iadd:
             return "iadd";
-        case Mnemonic::ineg:
-            return "ineg";
+        case Mnemonic::isub:
+            return "isub";
         case Mnemonic::iless:
             return "iless";
         case Mnemonic::imod:
             return "imod";
+        case Mnemonic::setret:
+            return "setret";
     }
     return "unknown";
 }
@@ -125,12 +128,14 @@ inline std::optional<Mnemonic> from_string(std::string_view s) {
         return Mnemonic::capture;
     } else if (s == "iadd") {
         return Mnemonic::iadd;
-    } else if (s == "ineg") {
-        return Mnemonic::ineg;
+    } else if (s == "isub") {
+        return Mnemonic::isub;
     } else if (s == "iless") {
         return Mnemonic::iless;
     } else if (s == "imod") {
         return Mnemonic::imod;
+    } else if (s == "setret") {
+        return Mnemonic::setret;
     } else {
         return std::nullopt;
     }

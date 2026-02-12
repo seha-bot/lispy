@@ -77,7 +77,7 @@ inline std::size_t instr_size(Instruction instr) {
         case Mnemonic::print:
         case Mnemonic::mkstr:
         case Mnemonic::iadd:
-        case Mnemonic::ineg:
+        case Mnemonic::isub:
         case Mnemonic::iless:
         case Mnemonic::imod:
             return 1;
@@ -93,6 +93,7 @@ inline std::size_t instr_size(Instruction instr) {
         case Mnemonic::strpush:
         case Mnemonic::closure:
         case Mnemonic::capture:
+        case Mnemonic::setret:
             return 2 + instr.operand.value().size_value();
     }
     std::unreachable();

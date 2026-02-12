@@ -36,6 +36,8 @@ struct Machine {
         return ip;
     }
 
+    void unsafe_pop_n(std::size_t n) { m_stack.resize(m_stack.size() - n); }
+
     bool has(std::size_t n) const { return n <= m_stack.size(); }
     std::size_t call_depth() const { return m_return_stack.size(); }
 
@@ -49,6 +51,7 @@ enum class StepResult {
     call_stack_overrun,
     mismatched_type,
     corrupted_opcode,
+    invalid_jump_address,
 };
 
 std::ostream& operator<<(std::ostream& os, StepResult sr) {
@@ -61,6 +64,8 @@ std::ostream& operator<<(std::ostream& os, StepResult sr) {
             return os << "mismatched_type";
         case StepResult::corrupted_opcode:
             return os << "corrupted_opcode";
+        case StepResult::invalid_jump_address:
+            return os << "invalid_jump_address";
     }
     std::unreachable();
 }
@@ -109,7 +114,8 @@ struct Decoder {
     bytecoder::Bytecode bc;
 };
 
-std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine& m, Decoder& dec, InstrPtr ip) {
+std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine& m, Decoder& dec,
+                                         InstrPtr ip) noexcept {
     auto opcode = dec.opcode(ip);
     switch (opcode) {
         case Mnemonic::eq: {  // eq
@@ -223,7 +229,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
                 }
                 std::expected<InstrPtr, StepResult> operator()(obj::Number dest_ip) {
                     if (dest_ip.value < 0) {
-                        throw "unimplemented";
+                        return std::unexpected(StepResult::invalid_jump_address);
                     }
                     return InstrPtr(static_cast<std::size_t>(dest_ip.value));
                 }
@@ -255,7 +261,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
                 }
                 std::expected<InstrPtr, StepResult> operator()(obj::Number dest_ip) {
                     if (dest_ip.value < 0) {
-                        throw "unimplemented";
+                        return std::unexpected(StepResult::invalid_jump_address);
                     }
                     m.push_call(ip.offset(dec.instr_size(Mnemonic::indcall, operand)));
                     return InstrPtr(static_cast<std::size_t>(dest_ip.value));
@@ -306,9 +312,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
                 return std::unexpected(StepResult::call_stack_overrun);
             }
 
-            for (std::uint64_t i = 0; i < *n; ++i) {
-                m.unsafe_pop();
-            }
+            m.unsafe_pop_n(*n);
             return m.unsafe_pop_call();
         }
         case Mnemonic::set: {  // set i
@@ -337,7 +341,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
         }
         case Mnemonic::mkstr:    // mkstr
         case Mnemonic::strpush:  // strpush c
-            throw std::runtime_error("unimplemented");
+            std::unreachable();
         case Mnemonic::closure: {  // closure lam_ip
             auto operand = dec.operand(ip);
             auto lam_ip = fetch_literal_unsigned(operand);
@@ -378,7 +382,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
             m.unsafe_top() = obj::Number(lhs->value + rhs->value);
             return ip.offset(dec.instr_size(Mnemonic::iadd));
         }
-        case Mnemonic::ineg: {  // ineg
+        case Mnemonic::isub: {  // isub
             if (not m.has(2)) {
                 return std::unexpected(StepResult::stack_overrun);
             }
@@ -390,7 +394,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
             }
             m.unsafe_pop();
             m.unsafe_top() = obj::Number(lhs->value - rhs->value);
-            return ip.offset(dec.instr_size(Mnemonic::ineg));
+            return ip.offset(dec.instr_size(Mnemonic::isub));
         }
         case Mnemonic::iless: {  // iless
             if (not m.has(2)) {
@@ -419,6 +423,23 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
             m.unsafe_pop();
             m.unsafe_top() = obj::Number(lhs->value % rhs->value);
             return ip.offset(dec.instr_size(Mnemonic::imod));
+        }
+        case Mnemonic::setret: {  // setret i
+            auto operand = dec.operand(ip);
+            auto i = fetch_literal_unsigned(operand);
+            if (not i) {
+                return std::unexpected(i.error());
+            }
+            if (not m.has(*i + 1)) {
+                return std::unexpected(StepResult::stack_overrun);
+            }
+            if (m.call_depth() == 0) {
+                return std::unexpected(StepResult::call_stack_overrun);
+            }
+
+            m.unsafe_seek(static_cast<std::size_t>(*i)) = m.unsafe_top();
+            m.unsafe_pop_n(static_cast<std::size_t>(*i));
+            return m.unsafe_pop_call();
         }
     }
 
