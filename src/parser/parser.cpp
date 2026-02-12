@@ -225,6 +225,7 @@ std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) {
         case TokenType::string:
             return std::make_unique<ast::String>(std::string(token->text()), source_location);
     }
+    std::unreachable();
 }
 
 }  // namespace

@@ -155,6 +155,7 @@ std::expected<void, StaticError> do_define(DefEnv& env, Closure& closure, ast::L
         case ast::ExprType::string:
             todo();
     }
+    std::unreachable();
 }
 
 std::expected<void, StaticError> do_expr(DefEnv& env, Closure& closure, ast::Expr& expr) {
@@ -214,11 +215,13 @@ std::expected<void, StaticError> do_expr(DefEnv& env, Closure& closure, ast::Exp
                 case ast::ExprType::string:
                     todo();
             }
+            std::unreachable();
         }
         case ast::ExprType::number:
         case ast::ExprType::string:
             return {};
     }
+    std::unreachable();
 }
 
 }  // namespace

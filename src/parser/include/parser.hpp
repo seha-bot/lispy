@@ -23,6 +23,7 @@ inline std::ostream& operator<<(std::ostream& os, ParseError const& e) {
         case ParseError::mismatched_parentheses:
             return os << "mismatched parentheses";
     }
+    std::unreachable();
 }
 
 std::expected<std::vector<ast::ExprPtr>, ParseError> run_parser(std::string_view input);

@@ -20,7 +20,7 @@ enum class OperandType { atom, literal, stack };
 
 enum class OperandSize { one_B, two_B, four_B, eight_B };
 
-OperandSize size_from_unsigned(std::uint64_t value) {
+inline OperandSize size_from_unsigned(std::uint64_t value) {
     if (value <= 255) {
         return OperandSize::one_B;
     } else if (value <= 65535) {
@@ -32,7 +32,7 @@ OperandSize size_from_unsigned(std::uint64_t value) {
     }
 }
 
-OperandSize size_from_signed(std::int64_t value) {
+inline OperandSize size_from_signed(std::int64_t value) {
     if (-128 <= value && value <= 127) {
         return OperandSize::one_B;
     } else if (-32768 <= value && value <= 32767) {
@@ -44,7 +44,7 @@ OperandSize size_from_signed(std::int64_t value) {
     }
 }
 
-std::size_t size_value(OperandSize size) { return std::size_t(1) << static_cast<int>(size); }
+inline std::size_t size_value(OperandSize size) { return std::size_t(1) << static_cast<int>(size); }
 
 struct Operand {
     Operand(OperandType type, OperandSize size, auto value)
@@ -67,7 +67,7 @@ struct Instruction {
     std::optional<Operand> operand;
 };
 
-std::size_t instr_size(Instruction instr) {
+inline std::size_t instr_size(Instruction instr) {
     switch (instr.mnemonic) {
         case Mnemonic::eq:
         case Mnemonic::cons:
@@ -95,12 +95,13 @@ std::size_t instr_size(Instruction instr) {
         case Mnemonic::capture:
             return 2 + instr.operand.value().size_value();
     }
+    std::unreachable();
 }
 
 // TODO: move this function outside of this file.
 // In order to do that, you have to make this file provide appropriate tools for the job.
-void assemble(std::ostream& os, std::vector<std::string> const& atoms, std::optional<InstrPtr> entry_point,
-              std::vector<Instruction> const& instrs) {
+inline void assemble(std::ostream& os, std::vector<std::string> const& atoms, std::optional<InstrPtr> entry_point,
+                     std::vector<Instruction> const& instrs) {
     auto write_n = [&os](std::uint64_t val, std::size_t n) {
         for (std::size_t i = 0; i < n; ++i) {
             os.put(static_cast<char>((val >> ((n - 1 - i) * 8)) & 0xFF));
@@ -132,7 +133,7 @@ void assemble(std::ostream& os, std::vector<std::string> const& atoms, std::opti
     }
 }
 
-std::uint64_t read_n(std::istream& is, std::size_t n) {
+inline std::uint64_t read_n(std::istream& is, std::size_t n) {
     std::uint64_t res = 0;
     for (std::size_t i = 0; i < n; ++i) {
         res <<= 8;
@@ -146,7 +147,7 @@ struct Prefix {
     std::vector<std::string> atoms;
 };
 
-Prefix read_prefix(std::istream& is) {
+inline Prefix read_prefix(std::istream& is) {
     InstrPtr entry_point(static_cast<std::size_t>(read_n(is, 8)));
     std::vector<std::string> atoms;
     while (is.peek() != '\0') {
@@ -162,7 +163,7 @@ Prefix read_prefix(std::istream& is) {
 
 using Bytecode = std::vector<std::uint8_t>;
 
-std::uint64_t read_n(Bytecode const& bc, std::size_t at, std::size_t n) {
+inline std::uint64_t read_n(Bytecode const& bc, std::size_t at, std::size_t n) {
     std::uint64_t res = 0;
     for (std::size_t i = 0; i < n; ++i) {
         res <<= 8;
@@ -171,9 +172,9 @@ std::uint64_t read_n(Bytecode const& bc, std::size_t at, std::size_t n) {
     return res;
 }
 
-Mnemonic opcode(Bytecode const& bc, InstrPtr ip) { return Mnemonic(read_n(bc, ip.value(), 1)); }
+inline Mnemonic opcode(Bytecode const& bc, InstrPtr ip) { return Mnemonic(read_n(bc, ip.value(), 1)); }
 
-Operand operand(Bytecode const& bc, InstrPtr ip) {
+inline Operand operand(Bytecode const& bc, InstrPtr ip) {
     auto operand_data = read_n(bc, ip.value() + 1, 1);
     auto type = static_cast<OperandType>((operand_data >> 6) & 0b11);
     auto size = static_cast<OperandSize>((operand_data >> 4) & 0b11);

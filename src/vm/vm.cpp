@@ -62,6 +62,7 @@ std::ostream& operator<<(std::ostream& os, StepResult sr) {
         case StepResult::corrupted_opcode:
             return os << "corrupted_opcode";
     }
+    std::unreachable();
 }
 
 std::expected<obj::Object, StepResult> fetch_object(Machine& m, bytecoder::Operand op) {
@@ -331,7 +332,7 @@ std::expected<InstrPtr, StepResult> step(GC& gc, obj::NameManager& mgr, Machine&
                 return std::unexpected(StepResult::stack_overrun);
             }
             obj::format_to(std::cout, mgr, m.unsafe_top());
-            std::cout << ' ' << std::flush;
+            std::cout << '\n';
             return ip.offset(dec.instr_size(Mnemonic::print));
         }
         case Mnemonic::mkstr:    // mkstr

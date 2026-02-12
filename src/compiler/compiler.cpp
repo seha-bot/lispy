@@ -169,6 +169,7 @@ std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env
                 case ast::ExprType::string:
                     todo();
             }
+            std::unreachable();
         }
         case ast::ExprType::number: {
             auto& number = static_cast<ast::Number&>(expr);
@@ -178,6 +179,7 @@ std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env
         case ast::ExprType::string:
             todo();
     }
+    std::unreachable();
 }
 
 std::expected<void, StaticError> compile_closure(std::vector<Line>& lines, Env& env, Closure const& closure) {
@@ -229,7 +231,7 @@ std::expected<Code, std::vector<StaticError>> compile_program(Program const& pro
         }
 
         // env.label_cnt = 0;
-        env.stack_depth = 0; // TODO: assert that this is 0 at the end.
+        env.stack_depth = 0;  // TODO: assert that this is 0 at the end.
         code.lines.push_back(Label{env.lambdas.at(&closure->source()).first});
         auto res = compile_closure(code.lines, env, *closure);
         if (not res) {
