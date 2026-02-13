@@ -6,6 +6,4 @@
 ; 	push id
 ; 	ret 0
 ; id:
-; 	push [0]
-; 	set 1
 ; 	ret 0

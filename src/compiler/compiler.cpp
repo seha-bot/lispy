@@ -159,20 +159,17 @@ std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env
                 }
                 case ast::ExprType::list: {
                     auto old_depth = env.stack_depth;
-                    for (std::size_t i = 1; i < list.size(); ++i) {
+                    for (std::size_t i = 0; i < list.size(); ++i) {
                         auto res = compile_expr(lines, env, closure, list[i], false);
                         if (not res) {
                             return std::unexpected(res.error());
                         }
                         env.stack_depth += 1;
                     }
-                    auto res = compile_expr(lines, env, closure, list[0], false);
-                    if (not res) {
-                        return std::unexpected(res.error());
-                    }
                     env.stack_depth = old_depth;
 
-                    lines.push_back(Instruction{Mnemonic::indcall, StackOperand{0}});
+                    lines.push_back(Instruction{Mnemonic::indcall, StackOperand{list.size() - 1}});
+                    lines.push_back(Instruction{Mnemonic::set, LiteralOperand{1}});
                     return {};
                 }
                 case ast::ExprType::number:
