@@ -129,26 +129,25 @@ std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env
                         lines.push_back(Instruction{Mnemonic::push, AtomOperand{"NIL"}});
                         return {};
                     } else {
-                        bool const tco_eligible = is_root and env.lambdas.at(&closure.source()).first == callee;
                         auto old_depth = env.stack_depth;
                         for (std::size_t i = 1; i < list.size(); ++i) {
                             auto arg = compile_expr(lines, env, closure, list[i], false);
                             if (not arg) {
                                 return std::unexpected(arg.error());
                             }
-                            if (tco_eligible) {
-                                lines.push_back(Instruction{Mnemonic::set, LiteralOperand{static_cast<std::int64_t>(
-                                                                               closure.header_size() - i + 1)}});
-                            } else {
-                                env.stack_depth += 1;
-                            }
+                            env.stack_depth += 1;
                         }
 
                         if (closure.is_local(callee)) {
                             lines.push_back(Instruction{Mnemonic::indcall,
                                                         StackOperand{env.stack_depth + closure.index_header(callee)}});
                         } else {
+                            bool const tco_eligible = is_root and env.lambdas.at(&closure.source()).first == callee;
                             if (tco_eligible) {
+                                for (std::size_t i = 1; i < list.size(); ++i) {
+                                    lines.push_back(Instruction{Mnemonic::set, LiteralOperand{static_cast<std::int64_t>(
+                                                                                   closure.header_size())}});
+                                }
                                 lines.push_back(Instruction{Mnemonic::jmp, LabelOperand{callee}});
                             } else {
                                 lines.push_back(Instruction{Mnemonic::call, LabelOperand{callee}});
@@ -170,7 +169,7 @@ std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env
                                     return std::unexpected(res.error());
                                 }
                                 if (i != lambda.size() - 1) {
-                                    lines.push_back(Instruction{Mnemonic::pop});
+                                    lines.push_back(Instruction{Mnemonic::pop, std::nullopt});
                                 }
                             }
                             // NOTE: this relies on the fact that sublambdas are compiled after parent lambdas.
