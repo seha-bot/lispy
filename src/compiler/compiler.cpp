@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -50,6 +51,7 @@ void compile_quote(std::vector<Line>& lines, ast::Expr& expr) {
 
 struct Env {
     std::unordered_map<ast::Expr *, std::pair<std::string, Closure const *>> lambdas;
+    std::unordered_set<ast::Expr *> lambdas_to_skip;
     std::size_t label_cnt = 0;
     std::size_t stack_depth = 0;
 };
@@ -158,6 +160,25 @@ std::expected<void, StaticError> compile_expr(std::vector<Line>& lines, Env& env
                     }
                 }
                 case ast::ExprType::list: {
+                    // IILE inlining
+                    if (list.size() == 1) {
+                        if (auto it = env.lambdas.find(&list[0]); it != env.lambdas.end()) {
+                            auto& lambda = static_cast<ast::List&>(list[0]);
+                            for (std::size_t i = 2; i < lambda.size(); ++i) {
+                                auto res = compile_expr(lines, env, closure, lambda[i], is_root);
+                                if (not res) {
+                                    return std::unexpected(res.error());
+                                }
+                                if (i != lambda.size() - 1) {
+                                    lines.push_back(Instruction{Mnemonic::pop});
+                                }
+                            }
+                            // NOTE: this relies on the fact that sublambdas are compiled after parent lambdas.
+                            env.lambdas_to_skip.emplace(&list[0]);
+                            return {};
+                        }
+                    }
+
                     auto old_depth = env.stack_depth;
                     for (std::size_t i = 0; i < list.size(); ++i) {
                         auto res = compile_expr(lines, env, closure, list[i], false);
@@ -232,7 +253,7 @@ std::expected<Code, std::vector<StaticError>> compile_program(Program const& pro
     Code code;
     std::vector<StaticError> errors;
     for (auto& closure : program.closures) {
-        if (not closure->parent()) {
+        if (not closure->parent() or env.lambdas_to_skip.contains(&closure->source())) {
             continue;
         }
 
