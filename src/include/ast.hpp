@@ -13,7 +13,6 @@ namespace ast {
 enum class ExprType { atom, list, number, string };
 
 struct Source {
-    std::size_t position;
     int line;
     int col;
 };

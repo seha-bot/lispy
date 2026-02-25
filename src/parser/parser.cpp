@@ -1,14 +1,15 @@
 #include "parser.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <expected>
+#include <iostream>
 #include <memory>
 #include <optional>
-#include <stdexcept>
-#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -17,191 +18,204 @@
 
 namespace {
 
+struct UntypedToken {
+    UntypedToken(std::string_view::iterator begin, std::string_view::iterator end, ast::Source source)
+        : m_begin(begin), m_end(end), m_source(source) {}
+
+    std::string_view text() const { return std::string_view(m_begin, m_end); }
+
+    UntypedToken concat(UntypedToken that) const {
+        if (m_end != that.m_begin) {
+            std::cerr << "Internal error. Report immediately.\n";
+            std::terminate();
+        }
+        return UntypedToken(m_begin, that.m_end, m_source);
+    }
+
+    ast::Source source_location() const noexcept { return m_source; }
+
+private:
+    std::string_view::iterator m_begin, m_end;
+    ast::Source m_source;
+};
+
 enum class TokenType {
-    unknown,
-    open_parenthesis,
-    close_parenthesis,
+    eof,
+    left_parenthesis,
+    right_parenthesis,
     quote,
-    identifier,
-    number,
+    text,
     string,
 };
 
-struct Token {
-    Token(std::string_view::iterator begin, std::string_view::iterator end, TokenType type, int line, int col)
-        : m_begin(begin), m_end(end), m_type(type), m_line(line), m_col(col) {}
+struct Token : UntypedToken {
+    Token(UntypedToken token, TokenType type) : UntypedToken(token), m_type(type) {}
 
-    std::string_view text() const { return std::string_view(m_begin, m_end); }
     TokenType type() const { return m_type; }
 
-    Token with_extent(std::optional<Token> that) const {
-        if (not that) {
-            return *this;
-        }
-
-        if (m_end != that->m_begin) {
-            throw std::logic_error("Internal parser error.");
-        }
-        return Token{m_begin, that->m_end, m_type, m_line, m_col};
-    }
-    Token with_type(TokenType type) const { return Token(m_begin, m_end, type, m_line, m_col); }
-
 private:
-    // TODO: remove this and make a proper API.
-    friend struct Lexer;
-    std::string_view::iterator m_begin, m_end;
     TokenType m_type;
-    int m_line, m_col;
 };
 
 struct Lexer {
-    Lexer(std::string_view input) : m_input(input), m_state{0, 1, 1} {}
+    Lexer(std::string_view input) : m_input(input) {}
 
-    std::expected<Token, ParseError> next_token() {
-        while (true) {
-            {
-                auto whitespace = while_([](char c) -> bool { return std::isspace(c); });
-                if (not whitespace) {
-                    return std::unexpected(whitespace.error());
-                }
+    std::expected<Token, ParseError> next_token() noexcept {
+        auto const cp = checkpoint();
+        auto const tok = char_();
+        if (not tok or tok->text()[0] == '\n') {
+            if (has_dollar()) {
+                rewind(cp);
+                pop_dollar();
+                return Token(empty(), TokenType::right_parenthesis);
             }
+            if (has_colon()) {
+                while_(is_space);
 
-            char first = 0;
-            {
-                auto r = peek();
-                if (not r) {
-                    return r;
-                }
-                first = r->text()[0];
-            }
-
-            switch (first) {
-                case '(':
-                    return char_().transform([](Token tok) { return tok.with_type(TokenType::open_parenthesis); });
-                case ')':
-                    return char_().transform([](Token tok) { return tok.with_type(TokenType::close_parenthesis); });
-                case '\'':
-                    return char_().transform([](Token tok) { return tok.with_type(TokenType::quote); });
-                case ';': {
-                    auto comment = while_([](char c) { return c != '\n'; });
-                    if (not comment) {
-                        return std::unexpected(comment.error());
+                bool is_empty_line = false;
+                {
+                    auto const next_cp = checkpoint();
+                    auto next_tok = char_();
+                    if (next_tok and next_tok->text()[0] == '\n') {
+                        is_empty_line = true;
                     }
-                    break;
+                    rewind(next_cp);
                 }
-                case '"':
-                    // TODO: add escaping and error reporting
-                    return char_().and_then([&](Token open) {
-                        return while_([](char c) { return c != '"'; }).and_then([&](std::optional<Token> str) {
-                            return char_().transform([&](Token close) {
-                                return open.with_extent(str).with_extent(close).with_type(TokenType::string);
-                            });
-                        });
-                    });
-                default:
-                    if (is_digit(first)) {
-                        return while_(is_digit).transform([](std::optional<Token> tok) {  //
-                            return tok->with_type(TokenType::number);
-                        });
-                    } else {
-                        return while_(is_identifier).transform([](std::optional<Token> tok) {
-                            return tok->with_type(TokenType::identifier);
-                        });
-                    }
+
+                if (not tok or (m_source.col <= top_colon() and not is_empty_line)) {
+                    rewind(cp);
+                    pop_colon();
+                    return Token(empty(), TokenType::right_parenthesis);
+                }
             }
+            return tok ? next_token() : Token(empty(), TokenType::eof);
+        }
+        char const first = tok->text()[0];
+
+        switch (first) {
+            case '(':
+                return Token(*tok, TokenType::left_parenthesis);
+            case ')':
+                return Token(*tok, TokenType::right_parenthesis);
+            case '\'':
+                return Token(*tok, TokenType::quote);
+            case ':':
+                push_colon(*tok);
+                return Token(*tok, TokenType::left_parenthesis);
+            case '$':
+                push_dollar();
+                return Token(*tok, TokenType::left_parenthesis);
+            case ';':
+                while_([](char c) { return c != '\n'; });
+                return next_token();
+            case '"':
+                // TODO: add escaping and error reporting
+                // return while_([](char c) { return c != '"'; }).and_then([&](Token str) {
+                //     return char_().transform([&](Token close) {
+                //         return tok->with_extent(str).with_extent(close).with_type(TokenType::string);
+                //     });
+                // });
+                throw "unimplemented";
+            default:
+                if (is_text(first)) {
+                    rewind(cp);
+                    return Token(*while_(is_text), TokenType::text);
+                } else if (is_space(first)) {
+                    while_(is_space);
+                    return next_token();
+                } else {
+                    return std::unexpected(ParseError{ParseError::unexpected_token, tok->source_location()});
+                }
         }
     }
 
-    ast::Source checkpoint() const { return m_state; }
-    void rewind(ast::Source checkpoint) { m_state = checkpoint; }
-
-    ast::Source source_location(Token tok) const {
-        return ast::Source{static_cast<std::size_t>(tok.m_begin - m_input.begin()), tok.m_line, tok.m_col};
+    std::pair<std::size_t, ast::Source> checkpoint() const noexcept { return {m_position, m_source}; }
+    void rewind(std::pair<std::size_t, ast::Source> checkpoint) noexcept {
+        m_position = checkpoint.first;
+        m_source = checkpoint.second;
     }
 
 private:
-    static bool is_digit(char c) { return std::isdigit(c); }
-    static bool is_identifier(char c) {
-        return not std::isspace(c) and c != '(' and c != ')' and c != '\'' and c != ';' and c != '"';
-    }
+    static bool is_space(char c) { return c == ' '; }
+    static bool is_text(char c) { return std::isalnum(c) or std::string_view{"!%&*/<=>?~_^|+-,\\@#"}.contains(c); }
 
-    std::expected<Token, ParseError> char_() {
-        if (m_state.position == m_input.size()) {
-            return std::unexpected(ParseError{ParseError::end_of_input, m_state});
+    void push_dollar() { ++m_dollar_stack; }
+    bool has_dollar() const { return m_dollar_stack != 0; }
+    void pop_dollar() { --m_dollar_stack; }
+
+    void push_colon(UntypedToken tok) { m_colon_stack.push_back(tok.source_location().col); }
+    bool has_colon() const { return not m_colon_stack.empty(); }
+    void pop_colon() { m_colon_stack.pop_back(); }
+    int top_colon() const { return m_colon_stack.back(); }
+
+    UntypedToken empty() const noexcept { return UntypedToken(m_input.end(), m_input.end(), m_source); }
+
+    std::optional<UntypedToken> char_() noexcept {
+        if (m_position == m_input.size()) {
+            return std::nullopt;
         }
-        Token tok(m_input.begin() + m_state.position, m_input.begin() + m_state.position + 1, TokenType::unknown,
-                  m_state.line, m_state.col);
-        char const c = m_input[m_state.position++];
+        auto const it = m_input.begin() + m_position;
+        UntypedToken const tok(it, it + 1, m_source);
+        char const c = m_input[m_position++];
         if (c == '\n') {
-            m_state.line += 1;
-            m_state.col = 0;
+            m_source.line += 1;
+            m_source.col = 0;
         }
-        m_state.col += 1;
+        m_source.col += 1;
         return tok;
     }
 
-    std::expected<Token, ParseError> peek() const {
-        if (m_state.position == m_input.size()) {
-            return std::unexpected(ParseError{ParseError::end_of_input, m_state});
-        }
-        return Token(m_input.begin() + m_state.position, m_input.begin() + m_state.position + 1, TokenType::unknown,
-                     m_state.line, m_state.col);
-    }
-
-    std::expected<std::optional<Token>, ParseError> while_(bool (*pred)(char)) {
-        std::optional<Token> res;
+    std::optional<UntypedToken> while_(bool (*pred)(char)) {
+        std::optional<UntypedToken> res;
         while (true) {
-            auto const c = peek();
-            if (not c) {
-                return c;
-            }
-            if (not pred(c->text()[0])) {
+            auto const cp = checkpoint();
+            auto const tok = char_();
+            if (not tok or not pred(tok->text()[0])) {
+                rewind(cp);
                 return res;
             }
             if (not res) {
-                res = char_().value();
+                res = tok;
             } else {
-                res = res->with_extent(char_().value());
+                res = res->concat(*tok);
             }
         }
     }
 
+    std::vector<int> m_colon_stack;
+    std::size_t m_dollar_stack = 0;
     std::string_view m_input;
-    ast::Source m_state;
+    std::size_t m_position = 0;
+    ast::Source m_source{1, 1};
 };
 
-std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) {
+static bool is_digit(char c) { return std::isdigit(c); };
+
+std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) noexcept {
     auto const token = lex.next_token();
     if (not token) {
         return std::unexpected(token.error());
     }
 
-    auto source_location = lex.source_location(*token);
+    auto const source_location = token->source_location();
     switch (token->type()) {
-        case TokenType::unknown:
-            throw std::logic_error("Internal parser error.");
-        case TokenType::open_parenthesis: {
+        case TokenType::eof:
+            return std::unexpected(ParseError{ParseError::end_of_input, source_location});
+        case TokenType::left_parenthesis: {
             std::vector<ast::ExprPtr> list;
             while (true) {
-                auto const checkpoint = lex.checkpoint();
-                auto const peek = lex.next_token();
-                if (not peek) {
-                    return std::unexpected(peek.error());
-                }
-                if (peek->type() == TokenType::close_parenthesis) {
-                    break;
-                }
-                lex.rewind(checkpoint);
-
                 auto subexpr = parse_expr(lex);
                 if (not subexpr) {
+                    if (subexpr.error().what == ParseError::mismatched_parentheses) {
+                        break;
+                    }
                     return subexpr;
                 }
                 list.push_back(*std::move(subexpr));
             }
             return std::make_unique<ast::List>(std::move(list), source_location);
         }
-        case TokenType::close_parenthesis:
+        case TokenType::right_parenthesis:
             return std::unexpected(ParseError{ParseError::mismatched_parentheses, source_location});
         case TokenType::quote: {
             auto subexpr = parse_expr(lex);
@@ -213,15 +227,19 @@ std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) {
             list.push_back(*std::move(subexpr));
             return std::make_unique<ast::List>(std::move(list), source_location);
         }
-        case TokenType::identifier:
-            return std::make_unique<ast::Atom>(std::string(token->text()), source_location);
-        case TokenType::number: {
-            // TODO: what if the number doesn't fit
-            std::int64_t v = 0;
-            auto const text = token->text();
-            std::from_chars(text.data(), text.data() + text.size(), v);
-            return std::make_unique<ast::Number>(v, source_location);
-        }
+        case TokenType::text:
+            if (is_digit(token->text()[0])) {
+                if (not std::ranges::all_of(token->text(), is_digit)) {
+                    return std::unexpected(ParseError{ParseError::invalid_digit, source_location});
+                }
+                std::int64_t v = 0;
+                auto const text = token->text();
+                // TODO: check for errors
+                std::from_chars(text.data(), text.data() + text.size(), v);
+                return std::make_unique<ast::Number>(v, source_location);
+            } else {
+                return std::make_unique<ast::Atom>(std::string(token->text()), source_location);
+            }
         case TokenType::string:
             return std::make_unique<ast::String>(std::string(token->text()), source_location);
     }
@@ -230,17 +248,27 @@ std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) {
 
 }  // namespace
 
-std::expected<std::vector<ast::ExprPtr>, ParseError> run_parser(std::string_view input) {
+std::expected<std::vector<ast::ExprPtr>, ParseError> run_parser(std::string_view input) noexcept {
     Lexer lex(input);
     std::vector<ast::ExprPtr> exprs;
     while (true) {
+        {
+            Lexer peeker(input);
+            peeker.rewind(lex.checkpoint());
+            auto const tok = peeker.next_token();
+            if (not tok) {
+                return std::unexpected(tok.error());
+            }
+            if (tok->type() == TokenType::eof) {
+                break;
+            }
+        }
+
         auto expr = parse_expr(lex);
         if (not expr) {
-            if (expr.error().what == ParseError::end_of_input) {
-                return exprs;
-            }
             return std::unexpected(expr.error());
         }
         exprs.push_back(*std::move(expr));
     }
+    return exprs;
 }
