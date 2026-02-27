@@ -1,25 +1,52 @@
-(define (+ x y) (+ x y))
-(define (- x y) (- x y))
-(define (< x y) (< x y))
-(define (eq x y) (eq x y))
-(define (print x) (print x))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Prelude
 
-(define (fib n)
-  (if (< n 2)
-    n
-    (+ (fib (- n 1)) (fib (- n 2)))))
+;; (type (To A B)
+;;   (To A B))
 
-(define (fib-iter n a b)
-  (if (eq n 0)
-    a
-    (fib-iter (- n 1) b (+ a b))))
+(type Unit
+  Unit)
 
-(define (main)
-  (print (fib 30))
-  (print (fib-iter 30 0 1)))
+;; (dec panic (To String Never))
+;; (defmacro todo '(panic "todo"))
 
-;; :define $fib n
-;;   :if (< n 2)
-;;     n
-;;     (+ $fib (- n 1)
-;;        $fib (- n 2))
+(type Bool
+  True
+  False)
+
+;; (def type
+;;   (lambda A
+;;     (To Bool ; cond
+;;     (To (To Unit A) ; then
+;;     (To (To Unit A) ; else
+;;     A))))
+;;   if-impl cond then else
+;;     (case cond
+;;       Bool.True (then Unit.Unit)
+;;       Bool.False (else Unit.Unit)))
+
+;; (defmacro if cond then else
+;;   '(if-impl ,cond (lambda _ ,then) (lambda _ ,else)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(def type (To Int (To Int Int))
+  + x y (+ x y))
+(def type (To Int (To Int Int))
+  - x y (- x y))
+(def type (To Int (To Int Bool))
+  < x y (< x y))
+;; (def type (To Int (To Int Bool))
+;;   = x y (todo Unit))
+
+(def type (To Int Int)
+  fib n
+    (case (< n 2)
+      True n
+      False (+ (fib (- n 1)) (fib (- n 2)))))
+
+;; (def type (To Int (To Int (To Int Int)))
+;;   fib-iter n a b
+;;     (if (= n 0)
+;;       a
+;;       (fib-iter (- n 1) b (+ a b))))

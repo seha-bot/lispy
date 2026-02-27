@@ -14,7 +14,7 @@ struct ParseError {
         unexpected_token,
         invalid_digit,
     } what;
-    ast::Source where;
+    rast::Source where;
 };
 
 inline std::ostream& operator<<(std::ostream& os, ParseError const& e) {
@@ -32,6 +32,6 @@ inline std::ostream& operator<<(std::ostream& os, ParseError const& e) {
     std::unreachable();
 }
 
-std::expected<std::vector<ast::ExprPtr>, ParseError> run_parser(std::string_view input) noexcept;
+std::expected<std::vector<rast::ExprPtr>, ParseError> run_parser(std::string_view input) noexcept;
 
 #endif

@@ -1,78 +1,45 @@
-#include <cstdio>  // required for readline, do NOT remove again
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include <stdexcept>
 
-#include "compiler/include/compiler.hpp"
-#include "compiler/include/explorer.hpp"
-#include "compiler/include/optimizer.hpp"
+#include "compiler/include/explorerv2.hpp"
 #include "parser/include/parser.hpp"
 
-extern "C" {
-#include <readline/history.h>
-#include <readline/readline.h>
-}
-
-struct FreeDeleter {
-    static void operator()(void *ptr) { std::free(ptr); }
-};
-
 int main(int argc, char *argv[]) {
-    if (argc != 3) {
-        std::cerr << "Usage: lispy <dest> <source>\n";
+    if (argc != 2) {
+        std::cerr << "Usage: lispy <source>\n";
         return EXIT_FAILURE;
     }
+    std::string filename = argv[1];
 
-    auto source = [&] {
-        std::ifstream f(argv[2]);
+    std::string source;
+    {
+        std::ifstream f(filename);
         if (not f) {
-            throw std::runtime_error("file something");
+            std::cerr << "Can't open file \"" << filename << "\" for reading.";
+            return EXIT_FAILURE;
         }
         std::stringstream buffer;
         buffer << f.rdbuf();
-        return buffer.str();
-    }();
-
-    std::ofstream output(argv[1]);
-    if (not output) {
-        throw std::runtime_error("file something");
+        source = std::move(buffer).str();
     }
 
-    auto program = run_parser(source);
-    if (not program) {
-        std::cerr << program.error() << '\n';
-        return EXIT_FAILURE;
-    }
-
-    auto program_res = do_program(*program);
-    if (not program_res) {
-        auto& errs = program_res.error();
-        for (auto& err : errs) {
-            std::cerr << err << '\n';
-        }
-        return EXIT_FAILURE;
-    }
-
-    auto code_res = compiler::compile_program(*program_res);
-    if (not code_res) {
-        auto& errs = code_res.error();
-        for (auto& err : errs) {
-            std::cerr << err << '\n';
-        }
-        return EXIT_FAILURE;
-    }
-
-    compiler::optimizer::optimize(*code_res);
-
-    output << *code_res;
-
-    // using_history();
-    // read_history("repl_history.txt");
-
-    // while (auto input = std::unique_ptr<char, FreeDeleter>(readline("> "))) {
-    //     add_history(input.get());
-    //     write_history("repl_history.txt");
+    // std::ofstream output(filename + ".out");
+    // if (not output) {
+    //     std::cerr << "Can't open file \"" << filename << ".out" << "\" for writing.";
+    //     return EXIT_FAILURE;
     // }
+
+    auto ast = run_parser(source);
+    if (not ast) {
+        std::cerr << ast.error() << '\n';
+        return EXIT_FAILURE;
+    }
+
+    for (auto& x : *ast) {
+        std::cout << x->format() << '\n';
+    }
+
+    auto defs = definitions::discover(*std::move(ast));
 }

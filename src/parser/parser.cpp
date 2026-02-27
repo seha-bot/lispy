@@ -15,11 +15,12 @@
 #include <vector>
 
 #include "ast.hpp"
+#include "todo.hpp"
 
 namespace {
 
 struct UntypedToken {
-    UntypedToken(std::string_view::iterator begin, std::string_view::iterator end, ast::Source source)
+    UntypedToken(std::string_view::iterator begin, std::string_view::iterator end, rast::Source source)
         : m_begin(begin), m_end(end), m_source(source) {}
 
     std::string_view text() const { return std::string_view(m_begin, m_end); }
@@ -32,11 +33,11 @@ struct UntypedToken {
         return UntypedToken(m_begin, that.m_end, m_source);
     }
 
-    ast::Source source_location() const noexcept { return m_source; }
+    rast::Source source_location() const noexcept { return m_source; }
 
 private:
     std::string_view::iterator m_begin, m_end;
-    ast::Source m_source;
+    rast::Source m_source;
 };
 
 enum class TokenType {
@@ -115,7 +116,7 @@ struct Lexer {
                 //         return tok->with_extent(str).with_extent(close).with_type(TokenType::string);
                 //     });
                 // });
-                throw "unimplemented";
+                todo();
             default:
                 if (is_text(first)) {
                     rewind(cp);
@@ -129,15 +130,15 @@ struct Lexer {
         }
     }
 
-    std::pair<std::size_t, ast::Source> checkpoint() const noexcept { return {m_position, m_source}; }
-    void rewind(std::pair<std::size_t, ast::Source> checkpoint) noexcept {
+    std::pair<std::size_t, rast::Source> checkpoint() const noexcept { return {m_position, m_source}; }
+    void rewind(std::pair<std::size_t, rast::Source> checkpoint) noexcept {
         m_position = checkpoint.first;
         m_source = checkpoint.second;
     }
 
 private:
     static bool is_space(char c) { return c == ' '; }
-    static bool is_text(char c) { return std::isalnum(c) or std::string_view{"!%&*/<=>?~_^|+-,\\@#"}.contains(c); }
+    static bool is_text(char c) { return std::isalnum(c) or std::string_view{".!%&*/<=>?~_^|+-,\\@#"}.contains(c); }
 
     void push_dollar() { ++m_dollar_stack; }
     bool has_dollar() const { return m_dollar_stack != 0; }
@@ -186,12 +187,12 @@ private:
     std::size_t m_dollar_stack = 0;
     std::string_view m_input;
     std::size_t m_position = 0;
-    ast::Source m_source{1, 1};
+    rast::Source m_source{1, 1};
 };
 
 static bool is_digit(char c) { return std::isdigit(c); };
 
-std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) noexcept {
+std::expected<rast::ExprPtr, ParseError> parse_expr(Lexer& lex) noexcept {
     auto const token = lex.next_token();
     if (not token) {
         return std::unexpected(token.error());
@@ -202,7 +203,7 @@ std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) noexcept {
         case TokenType::eof:
             return std::unexpected(ParseError{ParseError::end_of_input, source_location});
         case TokenType::left_parenthesis: {
-            std::vector<ast::ExprPtr> list;
+            std::vector<rast::ExprPtr> list;
             while (true) {
                 auto subexpr = parse_expr(lex);
                 if (not subexpr) {
@@ -213,7 +214,7 @@ std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) noexcept {
                 }
                 list.push_back(*std::move(subexpr));
             }
-            return std::make_unique<ast::List>(std::move(list), source_location);
+            return std::make_unique<rast::List>(std::move(list), source_location);
         }
         case TokenType::right_parenthesis:
             return std::unexpected(ParseError{ParseError::mismatched_parentheses, source_location});
@@ -222,10 +223,10 @@ std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) noexcept {
             if (not subexpr) {
                 return subexpr;
             }
-            std::vector<ast::ExprPtr> list;
-            list.push_back(std::make_unique<ast::Atom>("quote", source_location));
+            std::vector<rast::ExprPtr> list;
+            list.push_back(std::make_unique<rast::Atom>("quote", source_location));
             list.push_back(*std::move(subexpr));
-            return std::make_unique<ast::List>(std::move(list), source_location);
+            return std::make_unique<rast::List>(std::move(list), source_location);
         }
         case TokenType::text:
             if (is_digit(token->text()[0])) {
@@ -236,21 +237,21 @@ std::expected<ast::ExprPtr, ParseError> parse_expr(Lexer& lex) noexcept {
                 auto const text = token->text();
                 // TODO: check for errors
                 std::from_chars(text.data(), text.data() + text.size(), v);
-                return std::make_unique<ast::Number>(v, source_location);
+                return std::make_unique<rast::Number>(v, source_location);
             } else {
-                return std::make_unique<ast::Atom>(std::string(token->text()), source_location);
+                return std::make_unique<rast::Atom>(std::string(token->text()), source_location);
             }
         case TokenType::string:
-            return std::make_unique<ast::String>(std::string(token->text()), source_location);
+            return std::make_unique<rast::String>(std::string(token->text()), source_location);
     }
     std::unreachable();
 }
 
 }  // namespace
 
-std::expected<std::vector<ast::ExprPtr>, ParseError> run_parser(std::string_view input) noexcept {
+std::expected<std::vector<rast::ExprPtr>, ParseError> run_parser(std::string_view input) noexcept {
     Lexer lex(input);
-    std::vector<ast::ExprPtr> exprs;
+    std::vector<rast::ExprPtr> exprs;
     while (true) {
         {
             Lexer peeker(input);

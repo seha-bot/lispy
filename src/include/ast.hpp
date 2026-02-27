@@ -8,7 +8,81 @@
 #include <utility>
 #include <vector>
 
-namespace ast {
+// structured AST
+namespace sast {
+
+struct Expr {
+    virtual ~Expr() = default;
+};
+
+using ExprPtr = std::unique_ptr<Expr>;
+
+struct Call : Expr {
+    Call(ExprPtr callee, std::vector<ExprPtr> arguments)
+        : m_callee(std::move(callee)), m_arguments(std::move(arguments)) {}
+
+    ExprPtr m_callee;
+    std::vector<ExprPtr> m_arguments;
+};
+
+struct Pattern : Expr {
+    Pattern(std::string constructor_name, std::vector<std::string> values)
+        : m_constructor_name(std::move(constructor_name)), m_values(std::move(values)) {}
+
+    std::string m_constructor_name;
+    std::vector<std::string> m_values;
+};
+
+struct Case : Expr {
+    Case(ExprPtr expr, std::vector<std::pair<Pattern, ExprPtr>> cases)
+        : m_expr(std::move(expr)), m_cases(std::move(cases)) {}
+
+    ExprPtr m_expr;
+    std::vector<std::pair<Pattern, ExprPtr>> m_cases;
+};
+
+struct ValueDefinition {};
+
+struct Type {
+    Type(std::string name, std::vector<std::unique_ptr<Type>> arguments)
+        : m_name(std::move(name)), m_arguments(std::move(arguments)) {}
+
+    std::string m_name;
+    std::vector<std::unique_ptr<Type>> m_arguments;
+};
+
+struct FunctionDefinition {
+    FunctionDefinition(Type type, std::string name, std::vector<std::string> args, ExprPtr body)
+        : m_type(std::move(type)), m_name(std::move(name)), m_args(std::move(args)), m_body(std::move(body)) {}
+
+    Type m_type;
+    std::string m_name;
+    std::vector<std::string> m_args;
+    ExprPtr m_body;
+};
+
+struct Constructor {
+    Constructor(std::string name, std::vector<Type> arguments)
+        : m_name(std::move(name)), m_arguments(std::move(arguments)) {}
+
+    std::string m_name;
+    std::vector<Type> m_arguments;
+};
+
+struct TypeDefinition {
+    TypeDefinition(std::string name, std::vector<Constructor> constructors)
+        : m_name(std::move(name)), m_constructors(std::move(constructors)) {}
+
+    std::string m_name;
+    std::vector<Constructor> m_constructors;
+};
+
+using Definition = std::variant<ValueDefinition, FunctionDefinition, TypeDefinition>;
+
+}  // namespace sast
+
+// Raw AST
+namespace rast {
 
 enum class ExprType { atom, list, number, string };
 
@@ -40,12 +114,13 @@ private:
 
 using ExprPtr = std::unique_ptr<Expr>;
 
-struct Atom : Expr {
-    Atom(std::string value, Source source) : Expr(source), m_name(std::move(value)) {}
+struct Atom : Expr, sast::Expr {
+    Atom(std::string value, Source source) : rast::Expr(source), m_name(std::move(value)) {}
 
     std::string format() const override { return m_name; }
     ExprType type() const override { return ExprType::atom; }
     std::string const& name() const { return m_name; }
+    std::string& name() { return m_name; }
 
 private:
     std::string m_name;
@@ -67,14 +142,15 @@ struct List : Expr {
     bool empty() const { return m_elements.empty(); }
     std::size_t size() const { return m_elements.size(); }
     std::vector<ExprPtr> const& elements() const { return m_elements; }
+    std::vector<ExprPtr>& elements() { return m_elements; }
     Expr& operator[](std::size_t i) const { return *m_elements[i]; }
 
 private:
     std::vector<ExprPtr> m_elements;
 };
 
-struct Number : Expr {
-    Number(std::int64_t value, Source source) : Expr(source), m_value(value) {}
+struct Number : Expr, sast::Expr {
+    Number(std::int64_t value, Source source) : rast::Expr(source), m_value(value) {}
 
     std::string format() const override { return std::to_string(m_value); }
     ExprType type() const override { return ExprType::number; }
@@ -84,8 +160,8 @@ private:
     std::int64_t m_value;
 };
 
-struct String : Expr {
-    String(std::string value, Source source) : Expr(source), m_value(std::move(value)) {}
+struct String : Expr, sast::Expr {
+    String(std::string value, Source source) : rast::Expr(source), m_value(std::move(value)) {}
 
     std::string format() const override { return '"' + m_value + '"'; }
     ExprType type() const override { return ExprType::string; }
@@ -94,6 +170,6 @@ private:
     std::string m_value;
 };
 
-}  // namespace ast
+}  // namespace rast
 
 #endif
