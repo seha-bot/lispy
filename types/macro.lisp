@@ -12,7 +12,7 @@
 (defmacro while monad decl cond body...
   '(while-impl
     ,monad
-    ,(cdr decl)
+    ,(car (cdr decl))
     (lambda ,(car decl) ,cond)
     (lambda ,(car decl) (do ,monad ,body...))))
 

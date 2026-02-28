@@ -4,6 +4,7 @@
 #include <sstream>
 
 #include "compiler/include/explorerv2.hpp"
+#include "compiler/include/name_resolver.hpp"
 #include "parser/include/parser.hpp"
 
 int main(int argc, char *argv[]) {
@@ -37,9 +38,11 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    for (auto& x : *ast) {
-        std::cout << x->format() << '\n';
+    auto block = definitions::discover(*std::move(ast));
+    if (not block) {
+        std::cerr << block.error() << '\n';
+        return EXIT_FAILURE;
     }
 
-    auto defs = definitions::discover(*std::move(ast));
+    auto idk = names::resolve(*std::move(block));
 }

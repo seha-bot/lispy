@@ -28,10 +28,11 @@ std::expected<sast::Constructor, Error> parse_constructor(rast::ExprPtr expr) no
 
     std::unreachable();
 }
-std::expected<sast::Type, Error> parse_type(rast::ExprPtr expr) noexcept {
+
+std::expected<tast::Type, Error> parse_type_signature(rast::ExprPtr expr) noexcept {
     switch (expr->type()) {
         case rast::ExprType::atom:
-            return sast::Type(std::move(static_cast<rast::Atom&>(*expr).name()), {});
+            return tast::Type(std::move(static_cast<rast::Atom&>(*expr).name()), {});
         case rast::ExprType::list: {
             auto list = std::move(static_cast<rast::List&>(*expr).elements());
             if (list.size() < 2) {
@@ -41,15 +42,15 @@ std::expected<sast::Type, Error> parse_type(rast::ExprPtr expr) noexcept {
                 todo();
             }
             auto name = std::move(static_cast<rast::Atom&>(*list[0]).name());
-            std::vector<std::unique_ptr<sast::Type>> arguments;
+            std::vector<std::unique_ptr<tast::Type>> arguments;
             for (std::size_t i = 1; i < list.size(); ++i) {
-                auto argument = parse_type(std::move(list[i]));
+                auto argument = parse_type_signature(std::move(list[i]));
                 if (not argument) {
                     return std::unexpected(argument.error());
                 }
-                arguments.push_back(std::make_unique<sast::Type>(*std::move(argument)));
+                arguments.push_back(std::make_unique<tast::Type>(*std::move(argument)));
             }
-            return sast::Type(std::move(name), std::move(arguments));
+            return tast::Type(std::move(name), std::move(arguments));
         }
         case rast::ExprType::number:
         case rast::ExprType::string:
@@ -59,11 +60,7 @@ std::expected<sast::Type, Error> parse_type(rast::ExprPtr expr) noexcept {
     std::unreachable();
 }
 
-std::expected<sast::ExprPtr, Error> parse_expr(rast::ExprPtr expr) noexcept;
-
-// std::expected<sast::ExprPtr, Error> parse_lambda_expr(std::vector<rast::ExprPtr> list) noexcept { todo(); }
-
-std::expected<sast::Pattern, Error> parse_pattern_expr(rast::ExprPtr expr) noexcept {
+std::expected<sast::Pattern, Error> parse_pattern(rast::ExprPtr expr) noexcept {
     if (not expr->is_atom()) {
         todo();
     }
@@ -71,7 +68,9 @@ std::expected<sast::Pattern, Error> parse_pattern_expr(rast::ExprPtr expr) noexc
     return sast::Pattern(std::move(constructor_name), {});
 }
 
-std::expected<sast::Case, Error> parse_case_expr(std::vector<rast::ExprPtr> list) noexcept {
+std::expected<sast::Expr, Error> parse_expr(rast::ExprPtr expr) noexcept;
+
+std::expected<sast::Case, Error> parse_case(std::vector<rast::ExprPtr> list) noexcept {
     if (list.size() < 4 or list.size() % 2 != 0) {
         todo();
     }
@@ -81,7 +80,7 @@ std::expected<sast::Case, Error> parse_case_expr(std::vector<rast::ExprPtr> list
     }
     std::vector<std::pair<sast::Pattern, sast::ExprPtr>> cases;
     for (std::size_t i = 2; i < list.size(); i += 2) {
-        auto pattern = parse_pattern_expr(std::move(list[i]));
+        auto pattern = parse_pattern(std::move(list[i]));
         if (not pattern) {
             return std::unexpected(pattern.error());
         }
@@ -89,15 +88,80 @@ std::expected<sast::Case, Error> parse_case_expr(std::vector<rast::ExprPtr> list
         if (not result) {
             return std::unexpected(result.error());
         }
-        cases.emplace_back(*std::move(pattern), *std::move(result));
+        cases.push_back({*std::move(pattern), std::make_unique<sast::Expr>(*std::move(result))});
     }
-    return sast::Case(*std::move(expr), std::move(cases));
+    return sast::Case(std::make_unique<sast::Expr>(*std::move(expr)), std::move(cases));
 }
 
-std::expected<sast::ExprPtr, Error> parse_expr(rast::ExprPtr expr) noexcept {
+std::expected<sast::TypeDefinition, Error> parse_type_definition(std::vector<rast::ExprPtr> list) noexcept {
+    // (type ,name ,ctor ,ctors...)
+    if (list.size() < 3) {
+        todo();
+    }
+    if (not list[1]->is_atom()) {
+        todo();
+    }
+    auto type_name = std::move(static_cast<rast::Atom&>(*list[1]).name());
+    std::vector<sast::Constructor> constructors;
+    for (std::size_t i = 2; i < list.size(); ++i) {
+        auto constructor = parse_constructor(std::move(list[i]));
+        if (not constructor) {
+            return std::unexpected(constructor.error());
+        }
+        constructors.push_back(*std::move(constructor));
+    }
+    return sast::TypeDefinition(std::move(type_name), std::move(constructors));
+}
+
+std::expected<sast::ValueDefinition, Error> parse_value_definition(std::vector<rast::ExprPtr> list) noexcept {
+    // (def type ,type ,name ,args... ,body)
+    // (def ,name ,args... ,body)
+    if (list.size() < 2) {
+        todo();
+    }
+    if (not list[1]->is_atom()) {
+        todo();
+    }
+    auto& name_or_type_key = static_cast<rast::Atom&>(*list[1]).name();
+    if (name_or_type_key == "type") {
+        if (list.size() < 5) {
+            todo();
+        }
+        auto type_signature = parse_type_signature(std::move(list[2]));
+        if (not type_signature) {
+            return std::unexpected(type_signature.error());
+        }
+        if (not list[3]->is_atom()) {
+            todo();
+        }
+        auto name = std::move(static_cast<rast::Atom&>(*list[3]).name());
+
+        sast::ExprPtr body;
+        {
+            auto res = parse_expr(std::move(list.back()));
+            if (not res) {
+                return std::unexpected(res.error());
+            }
+            body = std::make_unique<sast::Expr>(*std::move(res));
+        }
+
+        for (std::size_t i = list.size() - 2; i >= 4; --i) {
+            if (not list[i]->is_atom()) {
+                todo();
+            }
+            auto parameter = std::move(static_cast<rast::Atom&>(*list[i]).name());
+            body = std::make_unique<sast::Expr>(sast::Lambda(std::nullopt, std::move(parameter), std::move(body)));
+        }
+        return sast::ValueDefinition(*std::move(type_signature), std::move(name), std::move(body));
+    } else {
+        todo();
+    }
+}
+
+std::expected<sast::Expr, Error> parse_expr(rast::ExprPtr expr) noexcept {
     switch (expr->type()) {
         case rast::ExprType::atom:
-            return sast::ExprPtr(static_cast<rast::Atom *>(expr.release()));
+            return sast::Atom(std::move(static_cast<rast::Atom&>(*expr).name()));
         case rast::ExprType::list: {
             auto list = std::move(static_cast<rast::List&>(*expr).elements());
             if (list.empty()) {
@@ -105,21 +169,22 @@ std::expected<sast::ExprPtr, Error> parse_expr(rast::ExprPtr expr) noexcept {
             }
             switch (list[0]->type()) {
                 case rast::ExprType::atom: {
-                    auto& callee_or_key = static_cast<rast::Atom&>(*list[0]);
-                    if (callee_or_key.name() == "lambda") {
-                        // return parse_lambda_expr(std::move(list));
+                    auto& key = static_cast<rast::Atom&>(*list[0]);
+
+                    if (key.name() == "lambda") {
                         todo();
-                    } else if (callee_or_key.name() == "case") {
-                        auto case_res = parse_case_expr(std::move(list));
-                        if (not case_res) {
-                            return std::unexpected(case_res.error());
-                        }
-                        return std::make_unique<sast::Case>(*std::move(case_res));
+                    } else if (key.name() == "case") {
+                        return parse_case(std::move(list));
+                    } else if (key.name() == "type") {
+                        return parse_type_definition(std::move(list));
+                    } else if (key.name() == "def") {
+                        return parse_value_definition(std::move(list));
                     } else {
                         [[fallthrough]];
                     }
                 }
                 case rast::ExprType::list: {
+                    // TODO: factor out to a parse_call function
                     auto callee = parse_expr(std::move(list[0]));
                     if (not callee) {
                         return std::unexpected(callee.error());
@@ -130,9 +195,9 @@ std::expected<sast::ExprPtr, Error> parse_expr(rast::ExprPtr expr) noexcept {
                         if (not argument) {
                             return std::unexpected(argument.error());
                         }
-                        arguments.push_back(*std::move(argument));
+                        arguments.push_back(std::make_unique<sast::Expr>(*std::move(argument)));
                     }
-                    return std::make_unique<sast::Call>(*std::move(callee), std::move(arguments));
+                    return sast::Call(std::make_unique<sast::Expr>(*std::move(callee)), std::move(arguments));
                 }
                 case rast::ExprType::number:
                 case rast::ExprType::string:
@@ -142,99 +207,27 @@ std::expected<sast::ExprPtr, Error> parse_expr(rast::ExprPtr expr) noexcept {
             std::unreachable();
         }
         case rast::ExprType::number:
-            return sast::ExprPtr(static_cast<rast::Number *>(expr.release()));
+            return sast::Number(static_cast<rast::Number&>(*expr).value());
         case rast::ExprType::string:
-            return sast::ExprPtr(static_cast<rast::String *>(expr.release()));
+            todo();
     }
 
     std::unreachable();
 }
 
-std::expected<sast::Definition, Error> parse_definition(rast::ExprPtr expr) noexcept {
-    if (not expr->is_list()) {
-        todo();
-    }
-    auto definition = std::move(static_cast<rast::List&>(*expr).elements());
-    if (definition.empty()) {
-        todo();
-    }
-    if (not definition[0]->is_atom()) {
-        todo();
-    }
-    auto& key = static_cast<rast::Atom&>(*definition[0]);
-
-    if (key.name() == "type") {
-        // (type ,name ,ctor ,ctors...)
-        if (definition.size() < 3) {
-            todo();
-        }
-        if (not definition[1]->is_atom()) {
-            todo();
-        }
-        auto type_name = std::move(static_cast<rast::Atom&>(*definition[1]).name());
-        std::vector<sast::Constructor> constructors;
-        for (std::size_t i = 2; i < definition.size(); ++i) {
-            auto constructor = parse_constructor(std::move(definition[i]));
-            if (not constructor) {
-                return std::unexpected(constructor.error());
-            }
-            constructors.push_back(*std::move(constructor));
-        }
-        return sast::TypeDefinition(std::move(type_name), std::move(constructors));
-    } else if (key.name() == "def") {
-        // (def type ,type ,name ,args... ,body)
-        // (def ,name ,args... ,body)
-        if (definition.size() < 2) {
-            todo();
-        }
-        if (not definition[1]->is_atom()) {
-            todo();
-        }
-        auto& name_or_type_key = static_cast<rast::Atom&>(*definition[1]).name();
-        if (name_or_type_key == "type") {
-            if (definition.size() < 5) {
-                todo();
-            }
-            auto type = parse_type(std::move(definition[2]));
-            if (not type) {
-                return std::unexpected(type.error());
-            }
-            if (not definition[3]->is_atom()) {
-                todo();
-            }
-            auto name = std::move(static_cast<rast::Atom&>(*definition[3]).name());
-            std::vector<std::string> args;
-            for (std::size_t i = 4; i < definition.size() - 1; ++i) {
-                if (not definition[i]->is_atom()) {
-                    todo();
-                }
-                args.push_back(std::move(static_cast<rast::Atom&>(*definition[i]).name()));
-            }
-            auto body = parse_expr(std::move(definition.back()));
-            if (not body) {
-                return std::unexpected(body.error());
-            }
-            return sast::FunctionDefinition(*std::move(type), std::move(name), std::move(args), *std::move(body));
-        } else {
-            todo();
-        }
-    } else {
-        todo();
-    }
-}
-
 }  // namespace
 
-std::expected<std::vector<sast::Definition>, Error> discover(std::vector<rast::ExprPtr> ast) {
-    std::vector<sast::Definition> defs;
+// TODO: this needs a better name (also the file needs a better name)
+std::expected<sast::Block, Error> discover(std::vector<rast::ExprPtr> ast) {
+    std::vector<sast::ExprPtr> defs;
     for (auto& expr : ast) {
-        auto def = parse_definition(std::move(expr));
+        auto def = parse_expr(std::move(expr));
         if (not def) {
             return std::unexpected(def.error());
         }
-        defs.push_back(*std::move(def));
+        defs.push_back(std::make_unique<sast::Expr>(*std::move(def)));
     }
-    return defs;
+    return sast::Block(std::move(defs));
 }
 
 }  // namespace definitions

@@ -30,14 +30,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(def type (To Int (To Int Int))
-  + x y (+ x y))
-(def type (To Int (To Int Int))
-  - x y (- x y))
-(def type (To Int (To Int Bool))
-  < x y (< x y))
-;; (def type (To Int (To Int Bool))
-;;   = x y (todo Unit))
+(def type (To Int (To Int Int)) + +)
+(def type (To Int (To Int Int)) - -)
+(def type (To Int (To Int Bool)) < <)
+;; (def type (To Int (To Int Bool)) = =)
 
 (def type (To Int Int)
   fib n

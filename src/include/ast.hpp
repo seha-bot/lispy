@@ -6,42 +6,11 @@
 #include <ranges>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
-// structured AST
-namespace sast {
-
-struct Expr {
-    virtual ~Expr() = default;
-};
-
-using ExprPtr = std::unique_ptr<Expr>;
-
-struct Call : Expr {
-    Call(ExprPtr callee, std::vector<ExprPtr> arguments)
-        : m_callee(std::move(callee)), m_arguments(std::move(arguments)) {}
-
-    ExprPtr m_callee;
-    std::vector<ExprPtr> m_arguments;
-};
-
-struct Pattern : Expr {
-    Pattern(std::string constructor_name, std::vector<std::string> values)
-        : m_constructor_name(std::move(constructor_name)), m_values(std::move(values)) {}
-
-    std::string m_constructor_name;
-    std::vector<std::string> m_values;
-};
-
-struct Case : Expr {
-    Case(ExprPtr expr, std::vector<std::pair<Pattern, ExprPtr>> cases)
-        : m_expr(std::move(expr)), m_cases(std::move(cases)) {}
-
-    ExprPtr m_expr;
-    std::vector<std::pair<Pattern, ExprPtr>> m_cases;
-};
-
-struct ValueDefinition {};
+// typed AST
+namespace tast {
 
 struct Type {
     Type(std::string name, std::vector<std::unique_ptr<Type>> arguments)
@@ -51,22 +20,85 @@ struct Type {
     std::vector<std::unique_ptr<Type>> m_arguments;
 };
 
-struct FunctionDefinition {
-    FunctionDefinition(Type type, std::string name, std::vector<std::string> args, ExprPtr body)
-        : m_type(std::move(type)), m_name(std::move(name)), m_args(std::move(args)), m_body(std::move(body)) {}
+}  // namespace tast
 
-    Type m_type;
+// structured AST
+namespace sast {
+
+using Expr = std::variant<   //
+    struct Atom,             //
+    struct Number,           //
+    struct Call,             //
+    struct Case,             //
+    struct Lambda,           //
+    struct ValueDefinition,  //
+    struct TypeDefinition,   //
+    struct Block>;
+
+using ExprPtr = std::unique_ptr<Expr>;
+
+struct Atom {
+    Atom(std::string name) : m_name(std::move(name)) {}
+
     std::string m_name;
-    std::vector<std::string> m_args;
+};
+
+struct Number {
+    Number(std::int64_t value) : m_value(value) {}
+
+    std::int64_t m_value;
+};
+
+struct Call {
+    Call(ExprPtr callee, std::vector<ExprPtr> arguments)
+        : m_callee(std::move(callee)), m_arguments(std::move(arguments)) {}
+
+    ExprPtr m_callee;
+    std::vector<ExprPtr> m_arguments;
+};
+
+struct Pattern {
+    Pattern(std::string constructor_name, std::vector<std::string> values)
+        : m_constructor_name(std::move(constructor_name)), m_values(std::move(values)) {}
+
+    std::string m_constructor_name;
+    std::vector<std::string> m_values;
+};
+
+struct Case {
+    Case(ExprPtr expr, std::vector<std::pair<Pattern, ExprPtr>> cases)
+        : m_expr(std::move(expr)), m_cases(std::move(cases)) {}
+
+    ExprPtr m_expr;
+    std::vector<std::pair<Pattern, ExprPtr>> m_cases;
+};
+
+struct Lambda {
+    Lambda(std::optional<tast::Type> type_signature, std::string parameter_name, ExprPtr body)
+        : m_type_signature(std::move(type_signature)),
+          m_parameter_name(std::move(parameter_name)),
+          m_body(std::move(body)) {}
+
+    std::optional<tast::Type> m_type_signature;
+    std::string m_parameter_name;
     ExprPtr m_body;
 };
 
+struct ValueDefinition {
+    ValueDefinition(std::optional<tast::Type> type_signature, std::string name, ExprPtr value)
+        : m_type_signature(std::move(type_signature)), m_name(std::move(name)), m_value(std::move(value)) {}
+
+    std::optional<tast::Type> m_type_signature;
+    std::string m_name;
+    ExprPtr m_value;
+};
+
 struct Constructor {
-    Constructor(std::string name, std::vector<Type> arguments)
+    Constructor(std::string name, std::vector<tast::Type> arguments)
         : m_name(std::move(name)), m_arguments(std::move(arguments)) {}
 
     std::string m_name;
-    std::vector<Type> m_arguments;
+    std::vector<tast::Type> m_arguments;
 };
 
 struct TypeDefinition {
@@ -77,7 +109,11 @@ struct TypeDefinition {
     std::vector<Constructor> m_constructors;
 };
 
-using Definition = std::variant<ValueDefinition, FunctionDefinition, TypeDefinition>;
+struct Block {
+    Block(std::vector<ExprPtr> exprs) : m_exprs(std::move(exprs)) {}
+
+    std::vector<ExprPtr> m_exprs;
+};
 
 }  // namespace sast
 
@@ -114,8 +150,8 @@ private:
 
 using ExprPtr = std::unique_ptr<Expr>;
 
-struct Atom : Expr, sast::Expr {
-    Atom(std::string value, Source source) : rast::Expr(source), m_name(std::move(value)) {}
+struct Atom : Expr {
+    Atom(std::string value, Source source) : Expr(source), m_name(std::move(value)) {}
 
     std::string format() const override { return m_name; }
     ExprType type() const override { return ExprType::atom; }
@@ -149,8 +185,8 @@ private:
     std::vector<ExprPtr> m_elements;
 };
 
-struct Number : Expr, sast::Expr {
-    Number(std::int64_t value, Source source) : rast::Expr(source), m_value(value) {}
+struct Number : Expr {
+    Number(std::int64_t value, Source source) : Expr(source), m_value(value) {}
 
     std::string format() const override { return std::to_string(m_value); }
     ExprType type() const override { return ExprType::number; }
@@ -160,8 +196,8 @@ private:
     std::int64_t m_value;
 };
 
-struct String : Expr, sast::Expr {
-    String(std::string value, Source source) : rast::Expr(source), m_value(std::move(value)) {}
+struct String : Expr {
+    String(std::string value, Source source) : Expr(source), m_value(std::move(value)) {}
 
     std::string format() const override { return '"' + m_value + '"'; }
     ExprType type() const override { return ExprType::string; }
