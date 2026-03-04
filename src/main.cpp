@@ -5,7 +5,7 @@
 #include <string>
 #include <utility>
 
-#include "compiler/include/explorerv2.hpp"
+#include "compiler/include/lowerer.hpp"
 #include "parser/include/parser.hpp"
 
 int main(int argc, char *argv[]) {
