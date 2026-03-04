@@ -1,34 +1,22 @@
 ;; (module Prelude
+;;   (type Unit
+;;     Unit)
 
-;; (type Unit
-;;   Unit)
+;;   ;; (type (To A B)
+;;   ;;   (To A B))
 
-;; ;; (type (To A B)
-;; ;;   (To A B))
+;;   ;; (dec panic (To String Never))
+;;   ;; (defmacro todo '(panic "todo"))
 
-;; ;; (dec panic (To String Never))
-;; ;; (defmacro todo '(panic "todo"))
+;;   (type Bool
+;;     True
+;;     False)
 
-;; (type Bool
-;;   True
-;;   False)
-
-;; ;; (def type
-;; ;;   (lambda A
-;; ;;     (To Bool ; cond
-;; ;;     (To (To Unit A) ; then
-;; ;;     (To (To Unit A) ; else
-;; ;;     A))))
-;; ;;   if-impl cond then else
-;; ;;     (case cond
-;; ;;       Bool.True (then Unit.Unit)
-;; ;;       Bool.False (else Unit.Unit)))
-
-;; ;; (defmacro if cond then else
-;; ;;   '(if-impl ,cond (lambda _ ,then) (lambda _ ,else)))
-
+;;   (defmacro if cond then else
+;;     '(case ,cond
+;;       True ,then
+;;       False ,else))
 ;; )
-
 
 (def (type (To Int (To Int Int))) + +)
 (def (type (To Int (To Int Int))) - -)

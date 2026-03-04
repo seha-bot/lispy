@@ -313,7 +313,10 @@ std::expected<ast::Module, Error> compile_shallow_entity(EntityStorage& storage,
         auto name = std::visit([](auto& entity) { return static_cast<std::string>(entity.name); }, *shallow_entity);
         shallow_entities.push_back(*std::move(shallow_entity));
         auto id = storage.reserve();
-        scope_entities.try_emplace(std::move(name), id);
+        auto [it, did_insert] = scope_entities.try_emplace(std::move(name), id);
+        if (not did_insert) {
+            todo();
+        }
         module_entities.push_back(id);
     }
     Scope const module_scope{std::move(scope_entities), &scope};
@@ -333,8 +336,8 @@ std::expected<ast::Module, Error> compile_shallow_entity(EntityStorage& storage,
 std::expected<ast::Entity, Error> compile_shallow_entity(EntityStorage& storage, Scope const& scope,
                                                          ast::ShallowEntity entity) noexcept {
     return std::visit(
-        [&storage, &scope](auto entity) -> std::expected<ast::Entity, Error> {
-            auto res = compile_shallow_entity(storage, scope, std::move(entity));
+        [&storage, &scope](auto unwrapped_entity) -> std::expected<ast::Entity, Error> {
+            auto res = compile_shallow_entity(storage, scope, std::move(unwrapped_entity));
             if (not res) {
                 return std::unexpected(res.error());
             }
