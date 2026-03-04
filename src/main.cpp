@@ -2,9 +2,10 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <string>
+#include <utility>
 
 #include "compiler/include/explorerv2.hpp"
-#include "compiler/include/name_resolver.hpp"
 #include "parser/include/parser.hpp"
 
 int main(int argc, char *argv[]) {
@@ -12,11 +13,12 @@ int main(int argc, char *argv[]) {
         std::cerr << "Usage: lispy <source>\n";
         return EXIT_FAILURE;
     }
-    std::string filename = argv[1];
+    // can std::filesystem be used here maybe?
+    std::string const filename = argv[1];
 
     std::string source;
     {
-        std::ifstream f(filename);
+        std::ifstream const f(filename);
         if (not f) {
             std::cerr << "Can't open file \"" << filename << "\" for reading.";
             return EXIT_FAILURE;
@@ -32,17 +34,15 @@ int main(int argc, char *argv[]) {
     //     return EXIT_FAILURE;
     // }
 
-    auto ast = run_parser(source);
-    if (not ast) {
-        std::cerr << ast.error() << '\n';
+    auto raw_ast = parse_source(source);
+    if (not raw_ast) {
+        std::cerr << raw_ast.error() << '\n';
         return EXIT_FAILURE;
     }
 
-    auto block = definitions::discover(*std::move(ast));
-    if (not block) {
-        std::cerr << block.error() << '\n';
+    auto result = compiler::lower_ast(filename, *std::move(raw_ast));
+    if (not result) {
+        std::cerr << result.error() << '\n';
         return EXIT_FAILURE;
     }
-
-    auto idk = names::resolve(*std::move(block));
 }

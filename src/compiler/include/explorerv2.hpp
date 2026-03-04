@@ -9,14 +9,19 @@
 
 #include "ast.hpp"
 
-namespace definitions {
+namespace compiler {
 
 struct Error {
     friend std::ostream& operator<<(std::ostream& os, Error) { return os; }
 };
 
-std::expected<sast::Block, Error> discover(std::vector<rast::ExprPtr> ast);
+struct Result {
+    ast::Module global_module;
+    std::vector<ast::Entity> entities;
+};
 
-}  // namespace definitions
+std::expected<Result, Error> lower_ast(std::string filename, std::vector<ast::Expr> ast) noexcept;
+
+}  // namespace compiler
 
 #endif
