@@ -16,7 +16,7 @@ struct Error {
 };
 
 struct Result {
-    ast::Module global_module;
+    ast::ModuleDefinition global_module;
     std::vector<ast::Entity> entities;
 };
 

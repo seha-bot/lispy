@@ -101,20 +101,25 @@ struct ShallowValueDefinition {
     Expr raw_value;
 };
 
+struct ShallowTypeDefinition {
+    std::string name;
+    std::vector<EntityId> parameters;
+    List raw_constructors;
+};
+
 struct ShallowMacroDefinition {
     std::string name;
     Expr rest;
 };
 
-struct ShallowModule {
+struct ShallowModuleDefinition {
     std::string name;
-    Expr rest;
+    List raw_entities;
 };
 
-struct Constructor {
-    std::string name;
-    std::vector<Type> arguments;
-};
+// Shallow entites are partially-compiled entities.
+using ShallowEntity =
+    std::variant<ShallowValueDefinition, ShallowTypeDefinition, ShallowMacroDefinition, ShallowModuleDefinition>;
 
 struct ValueDefinition {
     std::optional<Type> type_signature;
@@ -122,8 +127,14 @@ struct ValueDefinition {
     Expr value;
 };
 
+struct Constructor {
+    std::string name;
+    std::vector<Type> parameters;
+};
+
 struct TypeDefinition {
     std::string name;
+    std::vector<EntityId> parameters;
     std::vector<Constructor> constructors;
 };
 
@@ -133,7 +144,7 @@ struct MacroDefinition {
     Expr body;
 };
 
-struct Module {
+struct ModuleDefinition {
     std::string name;
     std::vector<EntityId> entities;
 };
@@ -142,11 +153,12 @@ struct LambdaParameter {
     std::string name;
 };
 
-// Shallow entites are partially-compiled entities.
-using ShallowEntity = std::variant<ShallowValueDefinition, TypeDefinition, ShallowMacroDefinition, ShallowModule>;
+struct TypeParameter {
+    std::string name;
+};
 
 // Entities have names.
-using Entity = std::variant<ValueDefinition, TypeDefinition, MacroDefinition, Module, LambdaParameter>;
+using Entity = std::variant<ValueDefinition, TypeDefinition, MacroDefinition, ModuleDefinition, LambdaParameter, TypeParameter>;
 
 inline List::List(std::vector<Expr> list, Source) : m_elements(std::move(list)) {}
 inline bool List::empty() const { return m_elements.empty(); }
