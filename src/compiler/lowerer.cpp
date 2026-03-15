@@ -49,6 +49,22 @@ struct EntityStorage {
         return entities;
     }
 
+    ast::EntityId get_label(std::string name) {
+        // TODO: this sucks!
+        for (std::size_t i = 0; i < m_entities.size(); ++i) {
+            if (m_entities[i]) {
+                if (auto *label = std::get_if<ast::Label>(&*m_entities[i])) {
+                    if (label->name == name) {
+                        return ast::EntityId{i};
+                    }
+                }
+            }
+        }
+        auto id = reserve();
+        store(id, ast::Label{std::move(name)});
+        return id;
+    }
+
 private:
     std::vector<std::optional<ast::Entity>> m_entities;
 };
@@ -69,47 +85,212 @@ struct Scope {
     Scope const *parent{};
 };
 
-///////////////////////////////////////////////////////////////////////////
+namespace raw {
 
-std::expected<ast::Type, Error> compile_raw_type_signature(EntityStorage&, Scope const&, ast::Expr) noexcept {
-    return ast::Type("Undefined", {});
-}
-
-std::expected<ast::Constructor, Error> compile_raw_constructor(EntityStorage& storage, Scope const& scope,
-                                                               ast::Expr expr) noexcept {
-    if (auto *name = std::get_if<ast::Atom>(&expr)) {
-        return ast::Constructor{std::move(name->name()), {}};
-    }
-    if (auto *name_and_parameters_opt = std::get_if<ast::List>(&expr)) {
-        auto& name_and_parameters = *name_and_parameters_opt;
-        if (name_and_parameters.size() < 2) {
-            todo();
-        }
-        auto *name = std::get_if<ast::Atom>(&name_and_parameters[0]);
-        if (not name) {
-            todo();
-        }
-
-        // TODO: reserve
-        std::vector<ast::Type> parameters;
-        for (std::size_t i = 1; i < name_and_parameters.size(); ++i) {
-            auto type_signature = compile_raw_type_signature(storage, scope, std::move(name_and_parameters[i]));
-            if (not type_signature) {
-                return std::unexpected(type_signature.error());
+std::expected<ast::Kind, Error> compile_raw_kind(ast::Expr expr) noexcept {
+    struct Visitor {
+        std::expected<ast::Kind, Error> operator()(ast::Atom atom) {
+            if (atom.name() == "*") {
+                return ast::Kind{};
             }
-            parameters.push_back(*std::move(type_signature));
+            todo();
         }
-        return ast::Constructor{std::move(name->name()), std::move(parameters)};
+        std::expected<ast::Kind, Error> operator()(ast::List list) {
+            if (list.size() != 3) {
+                todo();
+            }
+            if (auto *to = std::get_if<ast::Atom>(&list[0]); not to or to->name() != "to") {
+                todo();
+            }
+            auto from = compile_raw_kind(std::move(list[1]));
+            if (not from) {
+                return std::unexpected(from.error());
+            }
+            auto to = compile_raw_kind(std::move(list[1]));
+            if (not to) {
+                return std::unexpected(to.error());
+            }
+
+            return ast::Kind{
+                {{std::make_unique<ast::Kind>(*std::move(from)), std::make_unique<ast::Kind>(*std::move(to))}}};
+        }
+        std::expected<ast::Kind, Error> operator()(ast::Number) { todo(); }
+        std::expected<ast::Kind, Error> operator()(ast::EntityReference) { todo(); }
+        std::expected<ast::Kind, Error> operator()(ast::Call) { todo(); }
+        std::expected<ast::Kind, Error> operator()(ast::Case) { todo(); }
+        std::expected<ast::Kind, Error> operator()(ast::Lambda) { todo(); }
+        std::expected<ast::Kind, Error> operator()(ast::Quantifier) { todo(); }
+    };
+    return std::visit(Visitor{}, std::move(expr));
+}
+
+std::expected<ast::Type, Error> compile_raw_type(EntityStorage& storage, Scope const& scope, ast::Expr expr) noexcept {
+    if (auto *atom = std::get_if<ast::Atom>(&expr)) {
+        auto type = scope.lookup(atom->name());
+        if (not type) {
+            todo();
+        }
+        return ast::TypeReference{*type};
     }
 
-    todo();
+    auto *list_opt = std::get_if<ast::List>(&expr);
+    if (not list_opt or list_opt->empty()) {
+        todo();
+    }
+    auto& list = *list_opt;
+
+    auto *key = std::get_if<ast::Atom>(&list[0]);
+    if (not key) {
+        todo();
+    }
+
+    if (key->name() == "tuple") {
+        std::vector<ast::Type> elements;
+        for (std::size_t i = 1; i < list.size(); ++i) {
+            auto type = raw::compile_raw_type(storage, scope, std::move(list[i]));
+            if (not type) {
+                return std::unexpected(type.error());
+            }
+            elements.push_back(*std::move(type));
+        }
+        return ast::TypeTuple{std::move(elements)};
+    } else if (key->name() == "variant") {
+        std::vector<std::pair<ast::EntityId, std::optional<ast::Type>>> variants;
+        for (std::size_t i = 1; i < list.size(); ++i) {
+            struct Visitor {
+                std::expected<std::pair<ast::EntityId, std::optional<ast::Type>>, Error> operator()(ast::Atom atom) {
+                    return {{storage.get_label(std::move(atom.name())), std::nullopt}};
+                }
+                std::expected<std::pair<ast::EntityId, std::optional<ast::Type>>, Error> operator()(ast::List list) {
+                    if (list.size() != 2) {
+                        todo();
+                    }
+                    auto *label = std::get_if<ast::Atom>(&list[0]);
+                    if (not label) {
+                        todo();
+                    }
+                    auto type = raw::compile_raw_type(storage, scope, std::move(list[1]));
+                    if (not type) {
+                        return std::unexpected(type.error());
+                    }
+                    return {{storage.get_label(std::move(label->name())), *std::move(type)}};
+                }
+                std::expected<std::pair<ast::EntityId, std::optional<ast::Type>>, Error> operator()(ast::Number) {
+                    todo();
+                }
+                std::expected<std::pair<ast::EntityId, std::optional<ast::Type>>, Error> operator()(
+                    ast::EntityReference) {
+                    todo();
+                }
+                std::expected<std::pair<ast::EntityId, std::optional<ast::Type>>, Error> operator()(ast::Call) {
+                    todo();
+                }
+                std::expected<std::pair<ast::EntityId, std::optional<ast::Type>>, Error> operator()(ast::Case) {
+                    todo();
+                }
+                std::expected<std::pair<ast::EntityId, std::optional<ast::Type>>, Error> operator()(ast::Lambda) {
+                    todo();
+                }
+                std::expected<std::pair<ast::EntityId, std::optional<ast::Type>>, Error> operator()(ast::Quantifier) {
+                    todo();
+                }
+
+                EntityStorage& storage;
+                Scope const& scope;
+            };
+
+            auto variant = std::visit(Visitor{storage, scope}, std::move(list[i]));
+            if (not variant) {
+                return std::unexpected(variant.error());
+            }
+            variants.push_back(*std::move(variant));
+        }
+        return ast::TypeVariant{};
+    } else if (key->name() == "to") {
+        if (list.size() != 3) {
+            todo();
+        }
+        auto from = compile_raw_type(storage, scope, std::move(list[1]));
+        if (not from) {
+            return std::unexpected(from.error());
+        }
+        auto to = compile_raw_type(storage, scope, std::move(list[2]));
+        if (not to) {
+            return std::unexpected(to.error());
+        }
+        return ast::TypeArrow{std::make_unique<ast::Type>(*std::move(from)),
+                              std::make_unique<ast::Type>(*std::move(to))};
+    } else if (key->name() == "lambda") {
+        if (list.size() != 4) {
+            todo();
+        }
+        // TODO: raw::compile_raw_kind(list[1]);
+        auto *parameter_name = std::get_if<ast::Atom>(&list[2]);
+        if (not parameter_name) {
+            todo();
+        }
+
+        auto parameter_id = storage.reserve();
+        Scope const lambda_scope{{{parameter_name->name(), parameter_id}}, &scope};
+
+        storage.store(parameter_id, ast::LambdaParameter{std::move(parameter_name->name())});
+
+        auto type = compile_raw_type(storage, lambda_scope, std::move(list[3]));
+        if (not type) {
+            return std::unexpected(type.error());
+        }
+        return ast::TypeLambda{std::nullopt, parameter_id, std::make_unique<ast::Type>(*std::move(type))};
+    } else {
+        if (list.size() < 2) {
+            todo();
+        }
+        auto function = compile_raw_type(storage, scope, std::move(list[0]));
+        if (not function) {
+            return std::unexpected(function.error());
+        }
+        std::vector<ast::Type> arguments;
+        for (std::size_t i = 1; i < list.size(); ++i) {
+            auto argument = compile_raw_type(storage, scope, std::move(list[i]));
+            if (not argument) {
+                return std::unexpected(argument.error());
+            }
+            arguments.push_back(*std::move(argument));
+        }
+        return ast::TypeApplication{std::make_unique<ast::Type>(*std::move(function)), std::move(arguments)};
+    }
 }
 
-std::expected<ast::Pattern, Error> compile_raw_pattern(EntityStorage&, Scope const&, ast::Expr) noexcept {
-    return ast::Pattern{"Undefined", {}};
-}
+std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope const& scope, ast::Expr expr) noexcept;
 
-///////////////////////////////////////////////////////////////////////////
+std::expected<std::pair<ast::Pattern, ast::Expr>, Error> compile_raw_pattern(EntityStorage& storage, Scope const& scope,
+                                                                             ast::Expr pattern,
+                                                                             ast::Expr expr) noexcept {
+    struct Visitor {
+        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Atom atom) {
+            if (atom.name()[0] != ':') {
+                todo();
+            }
+            auto e = compile_raw_expr(storage, scope, std::move(expr));
+            if (not e) {
+                return std::unexpected(e.error());
+            }
+            return {{{storage.get_label(std::move(atom.name())), {}}, *std::move(e)}};
+        }
+        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::List) { todo(); }
+        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Number) { todo(); }
+        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::EntityReference) { todo(); }
+        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Call) { todo(); }
+        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Case) { todo(); }
+        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Lambda) { todo(); }
+        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Quantifier) { todo(); }
+
+        EntityStorage& storage;
+        Scope const& scope;
+        ast::Expr expr;
+    };
+
+    return std::visit(Visitor{storage, scope, std::move(expr)}, std::move(pattern));
+}
 
 std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope const& scope, ast::Expr expr) noexcept {
     struct Visitor {
@@ -142,8 +323,7 @@ std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope c
                                 not type_key or type_key->name() != "type") {
                                 todo();
                             }
-                            auto type_signature =
-                                compile_raw_type_signature(storage, scope, std::move((*raw_type_signature)[1]));
+                            auto type_signature = compile_raw_type(storage, scope, std::move((*raw_type_signature)[1]));
                             if (not type_signature) {
                                 return std::unexpected(type_signature.error());
                             }
@@ -186,6 +366,42 @@ std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope c
                         }
 
                         return ast::Lambda{std::nullopt, parameter_id, std::make_unique<ast::Expr>(*std::move(body))};
+                    } else if (key->name() == "forall") {
+                        if (list.size() != 4) {
+                            todo();
+                        }
+                        if (auto *raw_kind_signature = std::get_if<ast::List>(&list[1])) {
+                            if (raw_kind_signature->size() != 2) {
+                                todo();
+                            }
+                            if (auto *kind_key = std::get_if<ast::Atom>(&(*raw_kind_signature)[0]);
+                                not kind_key or kind_key->name() != "kind") {
+                                todo();
+                            }
+                            auto kind_signature = compile_raw_kind(std::move((*raw_kind_signature)[1]));
+                            if (not kind_signature) {
+                                return std::unexpected(kind_signature.error());
+                            }
+
+                            auto *parameter_name = std::get_if<ast::Atom>(&list[2]);
+                            if (not parameter_name) {
+                                todo();
+                            }
+
+                            auto parameter_id = storage.reserve();
+                            Scope const quantifier_scope{{{parameter_name->name(), parameter_id}}, &scope};
+
+                            storage.store(parameter_id, ast::QuantifierParameter{std::move(parameter_name->name())});
+
+                            auto body = compile_raw_expr(storage, quantifier_scope, std::move(list[3]));
+                            if (not body) {
+                                return std::unexpected(body.error());
+                            }
+
+                            return ast::Quantifier{*std::move(kind_signature), parameter_id,
+                                                   std::make_unique<ast::Expr>(*std::move(body))};
+                        }
+                        todo();
                     } else if (key->name() == "case") {
                         if (list.size() < 4 or list.size() % 2 != 0) {
                             todo();
@@ -196,18 +412,17 @@ std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope c
                         }
                         std::vector<std::pair<ast::Pattern, ast::Expr>> cases;
                         for (std::size_t i = 2; i < list.size(); i += 2) {
-                            auto pattern = compile_raw_pattern(storage, scope, std::move(list[i]));
-                            if (not pattern) {
-                                return std::unexpected(pattern.error());
+                            auto pattern_and_expr =
+                                compile_raw_pattern(storage, scope, std::move(list[i]), std::move(list[i + 1]));
+                            if (not pattern_and_expr) {
+                                return std::unexpected(pattern_and_expr.error());
                             }
-                            auto expression = compile_raw_expr(storage, scope, std::move(list[i + 1]));
-                            if (not expression) {
-                                return std::unexpected(expression.error());
-                            }
-                            cases.push_back({*std::move(pattern), *std::move(expression)});
+                            cases.push_back(*std::move(pattern_and_expr));
                         }
 
                         return ast::Case{std::make_unique<ast::Expr>(*std::move(scrutinee)), std::move(cases)};
+                    } else if (key->name()[0] == ':') {
+                        return ast::EntityReference{storage.get_label(std::move(key->name()))};
                     } else {
                         todo();
                     }
@@ -236,6 +451,7 @@ std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope c
         std::expected<ast::Expr, Error> operator()(ast::Call) { todo(); }
         std::expected<ast::Expr, Error> operator()(ast::Case) { todo(); }
         std::expected<ast::Expr, Error> operator()(ast::Lambda) { todo(); }
+        std::expected<ast::Expr, Error> operator()(ast::Quantifier) { todo(); }
 
         EntityStorage& storage;
         Scope const& scope;
@@ -243,8 +459,6 @@ std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope c
 
     return std::visit(Visitor{storage, scope}, std::move(expr));
 }
-
-///////////////////////////////////////////////////////////////////////////
 
 std::expected<ast::ShallowEntity, Error> compile_raw_module_entity(EntityStorage& storage, Scope const& scope,
                                                                    ast::Expr expr) noexcept {
@@ -273,17 +487,14 @@ std::expected<ast::ShallowEntity, Error> compile_raw_module_entity(EntityStorage
                 not type_key or type_key->name() != "type") {
                 todo();
             }
-            auto type_signature = compile_raw_type_signature(storage, scope, std::move((*raw_type_signature)[1]));
-            if (not type_signature) {
-                return std::unexpected(type_signature.error());
-            }
 
             auto *name = std::get_if<ast::Atom>(&list[2]);
             if (not name) {
                 todo();
             }
 
-            return ast::ShallowValueDefinition{*std::move(type_signature), std::move(name->name()), std::move(list[3])};
+            return ast::ShallowValueDefinition{std::move((*raw_type_signature)[1]), std::move(name->name()),
+                                               std::move(list[3])};
         }
 
         if (list.size() != 3) {
@@ -294,40 +505,26 @@ std::expected<ast::ShallowEntity, Error> compile_raw_module_entity(EntityStorage
             todo();
         }
         return ast::ShallowValueDefinition{std::nullopt, std::move(name->name()), std::move(list[2])};
-    } else if (key->name() == "type") {
-        if (list.size() < 2) {
+    } else if (key->name() == "form") {
+        if (list.size() != 3) {
             todo();
         }
-        if (auto *name = std::get_if<ast::Atom>(&list[1])) {
-            return ast::ShallowTypeDefinition{std::move(name->name()), {}, std::move(list).drop(2)};
+        auto *name = std::get_if<ast::Atom>(&list[1]);
+        if (not name) {
+            todo();
         }
-        if (auto *name_and_parameters_opt = std::get_if<ast::List>(&list[1])) {
-            auto& name_and_parameters = *name_and_parameters_opt;
-            if (name_and_parameters.size() < 2) {
-                todo();
-            }
-            auto *name = std::get_if<ast::Atom>(&name_and_parameters[0]);
-            if (not name) {
-                todo();
-            }
-
-            // TODO: reserve
-            std::vector<ast::EntityId> parameters;
-            for (std::size_t i = 1; i < name_and_parameters.size(); ++i) {
-                auto *parameter = std::get_if<ast::Atom>(&name_and_parameters[i]);
-                if (not parameter) {
-                    todo();
-                }
-                auto id = storage.reserve();
-                storage.store(id, ast::TypeParameter{std::move(parameter->name())});
-                parameters.push_back(id);
-            }
-
-            return ast::ShallowTypeDefinition{std::move(name->name()), std::move(parameters), std::move(list).drop(2)};
+        return ast::ShallowTypeFormDefinition{std::move(name->name()), std::move(list[2])};
+    } else if (key->name() == "dec") {
+        if (list.size() != 3) {
+            todo();
         }
-
-        todo();
-    } else if (key->name() == "module") {
+        auto *name = std::get_if<ast::Atom>(&list[1]);
+        if (not name) {
+            todo();
+        }
+        return ast::ShallowValueDeclaration{std::move(name->name()), std::move(list[2])};
+    }
+    if (key->name() == "module") {
         if (list.size() < 2) {
             todo();
         }
@@ -343,7 +540,7 @@ std::expected<ast::ShallowEntity, Error> compile_raw_module_entity(EntityStorage
     }
 }
 
-///////////////////////////////////////////////////////////////////////////
+}  // namespace raw
 
 std::expected<ast::Entity, Error> compile_shallow_entity(EntityStorage& storage, Scope const& scope,
                                                          ast::ShallowEntity entity) noexcept;
@@ -352,39 +549,39 @@ namespace shallow {
 
 std::expected<ast::ValueDefinition, Error> compile_shallow_entity(EntityStorage& storage, Scope const& scope,
                                                                   ast::ShallowValueDefinition value) {
-    auto expr = compile_raw_expr(storage, scope, std::move(value.raw_value));
+    std::optional<ast::Type> type_signature;
+    if (value.raw_type_signature) {
+        auto res = raw::compile_raw_type(storage, scope, *std::move(value.raw_type_signature));
+        if (not res) {
+            return std::unexpected(res.error());
+        }
+        type_signature = *std::move(res);
+    }
+
+    auto expr = raw::compile_raw_expr(storage, scope, std::move(value.raw_value));
     if (not expr) {
         return std::unexpected(expr.error());
     }
-    return ast::ValueDefinition{std::move(value.type_signature), std::move(value.name), *std::move(expr)};
+    return ast::ValueDefinition{std::move(type_signature), std::move(value.name), *std::move(expr)};
 }
 
-std::expected<ast::TypeDefinition, Error> compile_shallow_entity(EntityStorage& storage, Scope const& scope,
-                                                                 ast::ShallowTypeDefinition type) {
-    // TODO: reserve
-    std::unordered_map<std::string, ast::EntityId> entities;
-    for (auto& id : type.parameters) {
-        auto name = storage.name_of(id);
-        if (not name) {
-            todo();
-        }
-        auto [it, did_insert] = entities.try_emplace(std::string(*name), id);
-        if (not did_insert) {
-            todo();
-        }
+std::expected<ast::TypeFormDefinition, Error> compile_shallow_entity(EntityStorage& storage, Scope const& scope,
+                                                                     ast::ShallowTypeFormDefinition shallow_type_form) {
+    auto type = raw::compile_raw_type(storage, scope, std::move(shallow_type_form.raw_type));
+    if (not type) {
+        return std::unexpected(type.error());
     }
-    Scope const type_scope{std::move(entities), &scope};
+    return ast::TypeFormDefinition{std::move(shallow_type_form.name), *std::move(type)};
+}
 
-    // TODO: reserve
-    std::vector<ast::Constructor> constructors;
-    for (std::size_t i = 0; i < type.raw_constructors.size(); ++i) {
-        auto constructor = compile_raw_constructor(storage, type_scope, std::move(type.raw_constructors[i]));
-        if (not constructor) {
-            return std::unexpected(constructor.error());
-        }
-        constructors.push_back(*std::move(constructor));
+std::expected<ast::ValueDeclaration, Error> compile_shallow_entity(
+    EntityStorage& storage, Scope const& scope, ast::ShallowValueDeclaration shallow_value_declaration) {
+    auto type_signature =
+        raw::compile_raw_type(storage, scope, std::move(shallow_value_declaration.raw_type_signature));
+    if (not type_signature) {
+        return std::unexpected(type_signature.error());
     }
-    return ast::TypeDefinition{std::move(type.name), std::move(type.parameters), std::move(constructors)};
+    return ast::ValueDeclaration{std::move(shallow_value_declaration.name), *std::move(type_signature)};
 }
 
 std::expected<ast::MacroDefinition, Error> compile_shallow_entity(EntityStorage&, Scope const&,
@@ -398,7 +595,7 @@ std::expected<ast::ModuleDefinition, Error> compile_shallow_entity(EntityStorage
     std::unordered_map<std::string, ast::EntityId> scope_entities;
     std::vector<ast::EntityId> module_entities;
     for (std::size_t i = 0; i < module.raw_entities.size(); ++i) {
-        auto shallow_entity = compile_raw_module_entity(storage, scope, std::move(module.raw_entities[i]));
+        auto shallow_entity = raw::compile_raw_module_entity(storage, scope, std::move(module.raw_entities[i]));
         if (not shallow_entity) {
             return std::unexpected(shallow_entity.error());
         }

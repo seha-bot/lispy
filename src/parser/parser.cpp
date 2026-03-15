@@ -69,25 +69,6 @@ struct Lexer {
                 pop_dollar();
                 return Token(empty(), TokenType::right_parenthesis);
             }
-            if (has_colon()) {
-                while_(is_space);
-
-                bool is_empty_line = false;
-                {
-                    auto const next_cp = checkpoint();
-                    auto next_tok = char_();
-                    if (next_tok and next_tok->text()[0] == '\n') {
-                        is_empty_line = true;
-                    }
-                    rewind(next_cp);
-                }
-
-                if (not tok or (m_source.col <= top_colon() and not is_empty_line)) {
-                    rewind(cp);
-                    pop_colon();
-                    return Token(empty(), TokenType::right_parenthesis);
-                }
-            }
             return tok ? next_token() : Token(empty(), TokenType::eof);
         }
         char const first = tok->text()[0];
@@ -99,9 +80,6 @@ struct Lexer {
                 return Token(*tok, TokenType::right_parenthesis);
             case '\'':
                 return Token(*tok, TokenType::quote);
-            case ':':
-                push_colon(*tok);
-                return Token(*tok, TokenType::left_parenthesis);
             case '$':
                 push_dollar();
                 return Token(*tok, TokenType::left_parenthesis);
@@ -137,16 +115,11 @@ struct Lexer {
 
 private:
     static bool is_space(char c) { return c == ' '; }
-    static bool is_text(char c) { return std::isalnum(c) or std::string_view{".!%&*/<=>?~_^|+-,\\@#"}.contains(c); }
+    static bool is_text(char c) { return std::isalnum(c) or std::string_view{".!%&*/<=>?~_^|+-,\\@#:"}.contains(c); }
 
     void push_dollar() { ++m_dollar_stack; }
     bool has_dollar() const { return m_dollar_stack != 0; }
     void pop_dollar() { --m_dollar_stack; }
-
-    void push_colon(UntypedToken tok) { m_colon_stack.push_back(tok.source_location().col); }
-    bool has_colon() const { return not m_colon_stack.empty(); }
-    void pop_colon() { m_colon_stack.pop_back(); }
-    int top_colon() const { return m_colon_stack.back(); }
 
     UntypedToken empty() const noexcept { return UntypedToken(m_input.end(), m_input.end(), m_source); }
 
@@ -182,7 +155,6 @@ private:
         }
     }
 
-    std::vector<int> m_colon_stack;
     std::size_t m_dollar_stack = 0;
     std::string_view m_input;
     std::size_t m_position = 0;

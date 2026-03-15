@@ -15,17 +15,52 @@
 
 namespace ast {
 
-struct Type {
-    Type(std::string name, std::vector<std::unique_ptr<Type>> arguments)
-        : m_name(std::move(name)), m_arguments(std::move(arguments)) {}
-
-    std::string m_name;
-    std::vector<std::unique_ptr<Type>> m_arguments;
-};
-
 struct Source {
     int line;
     int col;
+};
+
+struct EntityId {
+    std::size_t id;
+};
+
+struct Kind {
+    std::optional<std::pair<std::unique_ptr<Kind>, std::unique_ptr<Kind>>> arrow;
+};
+
+struct TypeReference {
+    EntityId id;
+};
+
+struct TypeLambda;
+struct TypeArrow;
+struct TypeVariant;
+struct TypeTuple;
+struct TypeApplication;
+
+using Type = std::variant<TypeLambda, TypeArrow, TypeVariant, TypeTuple, TypeApplication, TypeReference>;
+
+struct TypeLambda {
+    std::optional<Kind> kind_signature;
+    EntityId parameter;
+    std::unique_ptr<Type> type;
+};
+
+struct TypeArrow {
+    std::unique_ptr<Type> from, to;
+};
+
+struct TypeVariant {
+    std::vector<std::pair<EntityId, std::optional<Type>>> elements;
+};
+
+struct TypeTuple {
+    std::vector<Type> elements;
+};
+
+struct TypeApplication {
+    std::unique_ptr<Type> function;
+    std::vector<Type> arguments;
 };
 
 struct Atom {
@@ -47,10 +82,6 @@ private:
     std::int64_t m_value;
 };
 
-struct EntityId {
-    std::size_t id;
-};
-
 struct EntityReference {
     EntityId id;
 };
@@ -59,8 +90,9 @@ struct List;
 struct Call;
 struct Case;
 struct Lambda;
+struct Quantifier;
 
-using Expr = std::variant<Atom, List, Number, Call, Case, Lambda, EntityReference>;
+using Expr = std::variant<Atom, List, Number, Call, Case, Lambda, Quantifier, EntityReference>;
 using ExprPtr = std::unique_ptr<Expr>;
 
 struct List {
@@ -80,8 +112,8 @@ struct Call {
 };
 
 struct Pattern {
-    std::string constructor_name;
-    std::vector<std::string> values;
+    EntityId name;
+    std::vector<EntityId> bindings;
 };
 
 struct Case {
@@ -95,16 +127,26 @@ struct Lambda {
     ExprPtr body;
 };
 
+struct Quantifier {
+    std::optional<Kind> kind_signature;
+    EntityId parameter;
+    ExprPtr body;
+};
+
 struct ShallowValueDefinition {
-    std::optional<Type> type_signature;
+    std::optional<Expr> raw_type_signature;
     std::string name;
     Expr raw_value;
 };
 
-struct ShallowTypeDefinition {
+struct ShallowTypeFormDefinition {
     std::string name;
-    std::vector<EntityId> parameters;
-    List raw_constructors;
+    Expr raw_type;
+};
+
+struct ShallowValueDeclaration {
+    std::string name;
+    Expr raw_type_signature;
 };
 
 struct ShallowMacroDefinition {
@@ -118,8 +160,8 @@ struct ShallowModuleDefinition {
 };
 
 // Shallow entites are partially-compiled entities.
-using ShallowEntity =
-    std::variant<ShallowValueDefinition, ShallowTypeDefinition, ShallowMacroDefinition, ShallowModuleDefinition>;
+using ShallowEntity = std::variant<ShallowValueDefinition, ShallowTypeFormDefinition, ShallowValueDeclaration,
+                                   ShallowMacroDefinition, ShallowModuleDefinition>;
 
 struct ValueDefinition {
     std::optional<Type> type_signature;
@@ -132,10 +174,15 @@ struct Constructor {
     std::vector<Type> parameters;
 };
 
-struct TypeDefinition {
+struct TypeFormDefinition {
     std::string name;
-    std::vector<EntityId> parameters;
-    std::vector<Constructor> constructors;
+    Type type;
+};
+
+// NOTE: don't forget that you do not want polymorphic declarations.
+struct ValueDeclaration {
+    std::string name;
+    Type type_signature;
 };
 
 struct MacroDefinition {
@@ -153,12 +200,17 @@ struct LambdaParameter {
     std::string name;
 };
 
-struct TypeParameter {
+struct QuantifierParameter {
+    std::string name;
+};
+
+struct Label {
     std::string name;
 };
 
 // Entities have names.
-using Entity = std::variant<ValueDefinition, TypeDefinition, MacroDefinition, ModuleDefinition, LambdaParameter, TypeParameter>;
+using Entity = std::variant<ValueDefinition, TypeFormDefinition, ValueDeclaration, MacroDefinition, ModuleDefinition,
+                            LambdaParameter, QuantifierParameter, Label>;
 
 inline List::List(std::vector<Expr> list, Source) : m_elements(std::move(list)) {}
 inline bool List::empty() const { return m_elements.empty(); }
