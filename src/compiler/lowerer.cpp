@@ -87,7 +87,7 @@ struct Scope {
 
 namespace raw {
 
-std::expected<ast::Kind, Error> compile_raw_kind(ast::Expr expr) noexcept {
+std::expected<ast::Kind, Error> compile_raw_kind(ast::RawExpr expr) noexcept {
     struct Visitor {
         std::expected<ast::Kind, Error> operator()(ast::Atom atom) {
             if (atom.name() == "*") {
@@ -115,16 +115,12 @@ std::expected<ast::Kind, Error> compile_raw_kind(ast::Expr expr) noexcept {
                 {{std::make_unique<ast::Kind>(*std::move(from)), std::make_unique<ast::Kind>(*std::move(to))}}};
         }
         std::expected<ast::Kind, Error> operator()(ast::Number) { todo(); }
-        std::expected<ast::Kind, Error> operator()(ast::EntityReference) { todo(); }
-        std::expected<ast::Kind, Error> operator()(ast::Call) { todo(); }
-        std::expected<ast::Kind, Error> operator()(ast::Case) { todo(); }
-        std::expected<ast::Kind, Error> operator()(ast::Lambda) { todo(); }
-        std::expected<ast::Kind, Error> operator()(ast::Quantifier) { todo(); }
     };
     return std::visit(Visitor{}, std::move(expr));
 }
 
-std::expected<ast::Type, Error> compile_raw_type(EntityStorage& storage, Scope const& scope, ast::Expr expr) noexcept {
+std::expected<ast::Type, Error> compile_raw_type(EntityStorage& storage, Scope const& scope,
+                                                 ast::RawExpr expr) noexcept {
     if (auto *atom = std::get_if<ast::Atom>(&expr)) {
         auto type = scope.lookup(atom->name());
         if (not type) {
@@ -260,11 +256,12 @@ std::expected<ast::Type, Error> compile_raw_type(EntityStorage& storage, Scope c
     }
 }
 
-std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope const& scope, ast::Expr expr) noexcept;
+std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope const& scope,
+                                                 ast::RawExpr expr) noexcept;
 
 std::expected<std::pair<ast::Pattern, ast::Expr>, Error> compile_raw_pattern(EntityStorage& storage, Scope const& scope,
-                                                                             ast::Expr pattern,
-                                                                             ast::Expr expr) noexcept {
+                                                                             ast::RawExpr pattern,
+                                                                             ast::RawExpr expr) noexcept {
     struct Visitor {
         std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Atom atom) {
             if (atom.name()[0] != ':') {
@@ -278,21 +275,17 @@ std::expected<std::pair<ast::Pattern, ast::Expr>, Error> compile_raw_pattern(Ent
         }
         std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::List) { todo(); }
         std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Number) { todo(); }
-        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::EntityReference) { todo(); }
-        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Call) { todo(); }
-        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Case) { todo(); }
-        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Lambda) { todo(); }
-        std::expected<std::pair<ast::Pattern, ast::Expr>, Error> operator()(ast::Quantifier) { todo(); }
 
         EntityStorage& storage;
         Scope const& scope;
-        ast::Expr expr;
+        ast::RawExpr expr;
     };
 
     return std::visit(Visitor{storage, scope, std::move(expr)}, std::move(pattern));
 }
 
-std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope const& scope, ast::Expr expr) noexcept {
+std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope const& scope,
+                                                 ast::RawExpr expr) noexcept {
     struct Visitor {
         std::expected<ast::Expr, Error> operator()(ast::Atom atom) {
             auto entity_id = scope.lookup(atom.name());
@@ -447,11 +440,6 @@ std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope c
             return ast::Call{std::make_unique<ast::Expr>(*std::move(callee)), std::move(arguments)};
         }
         std::expected<ast::Expr, Error> operator()(ast::Number number) { return number; }
-        std::expected<ast::Expr, Error> operator()(ast::EntityReference) { todo(); }
-        std::expected<ast::Expr, Error> operator()(ast::Call) { todo(); }
-        std::expected<ast::Expr, Error> operator()(ast::Case) { todo(); }
-        std::expected<ast::Expr, Error> operator()(ast::Lambda) { todo(); }
-        std::expected<ast::Expr, Error> operator()(ast::Quantifier) { todo(); }
 
         EntityStorage& storage;
         Scope const& scope;
@@ -460,8 +448,8 @@ std::expected<ast::Expr, Error> compile_raw_expr(EntityStorage& storage, Scope c
     return std::visit(Visitor{storage, scope}, std::move(expr));
 }
 
-std::expected<ast::ShallowEntity, Error> compile_raw_module_entity(EntityStorage& storage, Scope const& scope,
-                                                                   ast::Expr expr) noexcept {
+std::expected<ast::ShallowEntity, Error> compile_raw_module_entity(EntityStorage&, Scope const&,
+                                                                   ast::RawExpr expr) noexcept {
     auto *list_opt = std::get_if<ast::List>(&expr);
     if (not list_opt or list_opt->size() < 2) {
         todo();
@@ -533,8 +521,6 @@ std::expected<ast::ShallowEntity, Error> compile_raw_module_entity(EntityStorage
             todo();
         }
         return ast::ShallowModuleDefinition{std::move(name->name()), std::move(list).drop(2)};
-    } else if (key->name() == "defmacro") {
-        todo();
     } else {
         todo();
     }
@@ -582,11 +568,6 @@ std::expected<ast::ValueDeclaration, Error> compile_shallow_entity(
         return std::unexpected(type_signature.error());
     }
     return ast::ValueDeclaration{std::move(shallow_value_declaration.name), *std::move(type_signature)};
-}
-
-std::expected<ast::MacroDefinition, Error> compile_shallow_entity(EntityStorage&, Scope const&,
-                                                                  ast::ShallowMacroDefinition) {
-    todo();
 }
 
 std::expected<ast::ModuleDefinition, Error> compile_shallow_entity(EntityStorage& storage, Scope const& scope,
@@ -639,7 +620,7 @@ std::expected<ast::Entity, Error> compile_shallow_entity(EntityStorage& storage,
 
 }  // namespace
 
-std::expected<Result, Error> lower_ast(std::string filename, std::vector<ast::Expr> ast) noexcept {
+std::expected<Result, Error> lower_ast(std::string filename, std::vector<ast::RawExpr> ast) noexcept {
     EntityStorage storage;
     Scope const scope;
     auto shallow_module = ast::ShallowModuleDefinition{std::move(filename), ast::List(std::move(ast), ast::Source{})};

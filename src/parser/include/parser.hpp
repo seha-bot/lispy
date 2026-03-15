@@ -32,6 +32,6 @@ inline std::ostream& operator<<(std::ostream& os, ParseError const& e) {
     std::unreachable();
 }
 
-std::expected<std::vector<ast::Expr>, ParseError> parse_source(std::string_view input) noexcept;
+std::expected<std::vector<ast::RawExpr>, ParseError> parse_source(std::string_view input) noexcept;
 
 #endif

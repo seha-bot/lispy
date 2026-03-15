@@ -20,7 +20,7 @@ struct Result {
     std::vector<ast::Entity> entities;
 };
 
-std::expected<Result, Error> lower_ast(std::string filename, std::vector<ast::Expr> ast) noexcept;
+std::expected<Result, Error> lower_ast(std::string filename, std::vector<ast::RawExpr> ast) noexcept;
 
 }  // namespace compiler
 

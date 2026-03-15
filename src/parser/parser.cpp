@@ -163,7 +163,7 @@ private:
 
 static bool is_digit(char c) { return std::isdigit(c); };
 
-std::expected<ast::Expr, ParseError> parse_expr(Lexer& lex) noexcept {
+std::expected<ast::RawExpr, ParseError> parse_expr(Lexer& lex) noexcept {
     auto const token = lex.next_token();
     if (not token) {
         return std::unexpected(token.error());
@@ -174,7 +174,7 @@ std::expected<ast::Expr, ParseError> parse_expr(Lexer& lex) noexcept {
         case TokenType::eof:
             return std::unexpected(ParseError{ParseError::end_of_input, source_location});
         case TokenType::left_parenthesis: {
-            std::vector<ast::Expr> list;
+            std::vector<ast::RawExpr> list;
             while (true) {
                 auto subexpr = parse_expr(lex);
                 if (not subexpr) {
@@ -194,7 +194,7 @@ std::expected<ast::Expr, ParseError> parse_expr(Lexer& lex) noexcept {
             if (not subexpr) {
                 return subexpr;
             }
-            std::vector<ast::Expr> list;
+            std::vector<ast::RawExpr> list;
             list.push_back(ast::Atom("quote", source_location));
             list.push_back(*std::move(subexpr));
             return ast::List(std::move(list), source_location);
@@ -221,9 +221,9 @@ std::expected<ast::Expr, ParseError> parse_expr(Lexer& lex) noexcept {
 
 }  // namespace
 
-std::expected<std::vector<ast::Expr>, ParseError> parse_source(std::string_view input) noexcept {
+std::expected<std::vector<ast::RawExpr>, ParseError> parse_source(std::string_view input) noexcept {
     Lexer lex(input);
-    std::vector<ast::Expr> exprs;
+    std::vector<ast::RawExpr> exprs;
     while (true) {
         {
             Lexer peeker(input);
