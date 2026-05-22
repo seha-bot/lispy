@@ -13,6 +13,14 @@
 #include <variant>
 #include <vector>
 
+namespace compiler {
+struct RepresentativeSets;
+}
+
+namespace compiler {
+struct TypeStorage;
+}
+
 namespace ast {
 
 struct Source {
@@ -55,61 +63,106 @@ private:
     std::vector<RawExpr> m_elements;
 };
 
+inline List::List(std::vector<RawExpr> list, Source) : m_elements(std::move(list)) {}
+inline bool List::empty() const { return m_elements.empty(); }
+inline std::size_t List::size() const { return m_elements.size(); }
+inline RawExpr& List::operator[](std::size_t i) { return m_elements[i]; }
+inline List List::drop(std::size_t n) && {
+    m_elements.erase(m_elements.begin(), m_elements.begin() + static_cast<std::ptrdiff_t>(n));
+    return std::move(*this);
+}
+
 struct EntityId {
+    bool operator==(EntityId const&) const = default;
     std::size_t id;
 };
 
+struct Label {
+    bool operator==(Label const&) const = default;
+    std::string name;
+};
+
+struct LabelId {
+    bool operator==(LabelId const&) const = default;
+    std::size_t id;
+};
+
+struct TypeId {
+    explicit TypeId(std::size_t id, compiler::RepresentativeSets& rep) : m_id(id), m_rep(&rep) {}
+
+    bool operator==(TypeId const& that) const;
+    std::string to_string() const;
+
+private:
+    friend compiler::RepresentativeSets;
+    friend compiler::TypeStorage;
+    std::size_t m_id;
+    compiler::RepresentativeSets *m_rep;
+};
+
 struct Kind {
-    std::optional<std::pair<std::unique_ptr<Kind>, std::unique_ptr<Kind>>> arrow;
+    bool operator==(Kind const&) const = default;
+    std::optional<std::pair<std::shared_ptr<Kind>, std::shared_ptr<Kind>>> arrow;
 };
 
+// TODO: this is more of a "NamedType"
 struct TypeReference {
-    EntityId id;
+    bool operator==(TypeReference const&) const = default;
+    EntityId definition;
 };
 
-struct TypeLambda;
-struct TypeArrow;
-struct TypeVariant;
-struct TypeTuple;
-struct TypeApplication;
+struct TTLambda {
+    bool operator==(TTLambda const&) const = default;
+    struct Parameter {
+        std::string name;
+    };
 
-using Type = std::variant<TypeLambda, TypeArrow, TypeVariant, TypeTuple, TypeApplication, TypeReference>;
-using TypePtr = std::unique_ptr<Type>;
-
-struct TypeLambda {
-    std::optional<Kind> kind_signature;
     EntityId parameter;
-    TypePtr type;
+    std::optional<Kind> parameter_kind;
+    TypeId body;
 };
 
 struct TypeArrow {
-    TypePtr from;
-    TypePtr to;
+    bool operator==(TypeArrow const&) const = default;
+    TypeId from;
+    TypeId to;
 };
 
 struct TypeVariant {
-    std::vector<std::pair<EntityId, std::optional<Type>>> elements;
+    bool operator==(TypeVariant const&) const = default;
+    std::vector<std::pair<LabelId, std::optional<TypeId>>> elements;
 };
 
 struct TypeTuple {
-    std::vector<Type> elements;
+    bool operator==(TypeTuple const&) const = default;
+    std::vector<TypeId> elements;
 };
 
 struct TypeApplication {
-    TypePtr function;
-    std::vector<Type> arguments;
+    bool operator==(TypeApplication const&) const = default;
+    TypeId function;
+    std::vector<TypeId> arguments;
 };
+
+struct TypeVariable {
+    bool operator==(TypeVariable const&) const = default;
+    std::size_t id;
+};
+
+using Type = std::variant<TypeReference, TTLambda, TypeArrow, TypeVariant, TypeTuple,
+                          TypeApplication, TypeVariable>;
 
 struct Call;
 struct Case;
+struct LabelCall;
 struct Lambda;
-struct Quantifier;
+struct TVLambda;
 
 struct EntityReference {
     EntityId id;
 };
 
-using Expr = std::variant<Number, Call, Case, Lambda, Quantifier, EntityReference>;
+using Expr = std::variant<Number, Call, Case, LabelCall, Lambda, TVLambda, EntityReference>;
 using ExprPtr = std::unique_ptr<Expr>;
 
 struct Call {
@@ -117,31 +170,58 @@ struct Call {
     std::vector<Expr> arguments;
 };
 
-struct Pattern {
-    EntityId name;
-    std::vector<EntityId> bindings;
+struct Case {
+    struct Pattern {
+        LabelId name;
+        std::optional<EntityId> variable;
+    };
+
+    struct Alternative;
+
+    ExprPtr scrutinee;
+    std::vector<Alternative> alternatives;
 };
 
-struct Case {
-    ExprPtr scrutinee;
-    std::vector<std::pair<Pattern, Expr>> cases;
+struct LabelCall {
+    // TODO: feel free to rename it now to label_id
+    LabelId callee;
+    TypeId type;
+    std::optional<ExprPtr> argument;
 };
 
 struct Lambda {
-    std::optional<Type> type_signature;
+    struct Parameter {
+        std::string name;
+        std::optional<TypeId> type;
+    };
+
     EntityId parameter;
     ExprPtr body;
 };
 
-struct Quantifier {
-    std::optional<Kind> kind_signature;
+struct TVLambda {
+    struct Parameter {
+        std::string name;
+    };
+
     EntityId parameter;
+    std::optional<Kind> parameter_kind;
     ExprPtr body;
+};
+
+struct Case::Alternative {
+    Pattern pattern;
+    Expr arm;
 };
 
 struct ShallowValueDefinition {
-    std::optional<RawExpr> raw_type_signature;
     std::string name;
+    RawExpr raw_value;
+};
+
+struct ShallowMergedValueDefinition {
+    std::string name;
+    RawExpr raw_type_signature;
     RawExpr raw_value;
 };
 
@@ -162,28 +242,28 @@ struct ShallowModuleDefinition {
 
 // Shallow entites are partially-compiled entities.
 using ShallowEntity =
-    std::variant<ShallowValueDefinition, ShallowTypeFormDefinition, ShallowValueDeclaration, ShallowModuleDefinition>;
+    std::variant<ShallowMergedValueDefinition, ShallowValueDefinition, ShallowTypeFormDefinition,
+                 ShallowValueDeclaration, ShallowModuleDefinition>;
 
 struct ValueDefinition {
-    std::optional<Type> type_signature;
     std::string name;
     Expr value;
 };
 
-struct Constructor {
-    std::string name;
-    std::vector<Type> parameters;
-};
-
 struct TypeFormDefinition {
     std::string name;
-    Type type;
+    TypeId type;
 };
 
-// NOTE: don't forget that you do not want polymorphic declarations.
 struct ValueDeclaration {
     std::string name;
-    Type type_signature;
+    TypeId type_signature;
+};
+
+struct MergedValueDefinition {
+    std::string name;
+    TypeId type_signature;
+    Expr value;
 };
 
 struct ModuleDefinition {
@@ -191,31 +271,22 @@ struct ModuleDefinition {
     std::vector<EntityId> entities;
 };
 
-struct LambdaParameter {
-    std::string name;
-};
-
-struct QuantifierParameter {
-    std::string name;
-};
-
-struct Label {
+struct PatternBinding {
     std::string name;
 };
 
 // Entities have names.
-using Entity = std::variant<ValueDefinition, TypeFormDefinition, ValueDeclaration, ModuleDefinition, LambdaParameter,
-                            QuantifierParameter, Label>;
-
-inline List::List(std::vector<RawExpr> list, Source) : m_elements(std::move(list)) {}
-inline bool List::empty() const { return m_elements.empty(); }
-inline std::size_t List::size() const { return m_elements.size(); }
-inline RawExpr& List::operator[](std::size_t i) { return m_elements[i]; }
-inline List List::drop(std::size_t n) && {
-    m_elements.erase(m_elements.begin(), m_elements.begin() + static_cast<std::ptrdiff_t>(n));
-    return std::move(*this);
-}
+using Entity = std::variant<ValueDefinition, TypeFormDefinition, ValueDeclaration,
+                            MergedValueDefinition, ModuleDefinition, Lambda::Parameter,
+                            TVLambda::Parameter, TTLambda::Parameter, PatternBinding>;
 
 }  // namespace ast
+
+template <>
+struct std::hash<ast::EntityId> {
+    static std::size_t operator()(ast::EntityId const& eid) {
+        return eid.id;
+    }
+};
 
 #endif

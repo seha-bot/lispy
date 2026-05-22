@@ -1,8 +1,7 @@
-;; (module Prelude
+;; ;; (module Prelude
 
-  (form Never (variant))
-  (form Unit (variant :unit))
-  (form Int (variant :zero))
+;;   (form Never (variant))
+;;   (form Unit (variant :unit))
   (form Bool (variant :true :false))
 
   (form Nat
@@ -10,55 +9,82 @@
       :zero
       (:succ Nat)))
 
-  ;; (def add
-  ;;   (lambda (type (to Nat (to Nat Nat))) n
-  ;;     (lambda (type (to Nat Nat)) m
-  ;;       (case m
-  ;;         :zero n
-  ;;         (:succ p) (add (Nat (:succ n)) p)))))
+;;   (def add
+;;     (lambda (n Nat)
+;;       (lambda (m Nat)
+;;         (case m
+;;           :zero n
+;;           (:succ p) (add (Nat (:succ n)) p)))))
 
-  (form List
-    (lambda (kind (to * *)) A
-      (variant
-        (:nil Unit)
-        (:cons (tuple A (List A))))))
+;;   (form List
+;;     (tt-lambda (A *)
+;;       (variant
+;;         (:nil Unit)
+;;         (:cons (tuple A (List A))))))
 
-  (def empty
-    (forall (kind *) A
-      ((List A) (:nil (Unit :unit)))))
+;;   (form ListN
+;;     (variant
+;;       :nil
+;;       (:cons (tuple N (ListN N)))))
 
-  (def prepend
-    (forall (kind *) A
-      (lambda (type (to A (to (List A) (List A)))) x
-        (lambda (type (to (List A) (List A))) xs
-          ((List A) (:cons x xs))))))
+;; (def prazna
+;;   (tv-lambda (A *)
+;;     (lambda (l (Lista A))
+;;       (case l
+;;         :prazna :true
+;;         (:spoj _ _) :false))))
 
-  (form Functor
-    (lambda (kind (to (to * *) *)) F
-      (variant
-        (:fmap
-          (lambda (kind (to * (to * *))) A
-            (lambda (kind (to * *)) B
-              (to (to A B) (to (F A) (F B)))))))))
-;; )
+;;   ;; (dec empty (forall (A *) (List A)))
+;;   (def empty
+;;     (tv-lambda (A *)
+;;       ((List A) (:nil (Unit :unit)))))
 
-(dec + (to Int (to Int Int)))
-(dec - (to Int (to Int Int)))
-(dec < (to Int (to Int Bool)))
-(dec = (to Int (to Int Bool)))
+;;   ;; (dec prepend (forall (A *) (to A (to (List A) (List A)))))
+;;   (def prepend
+;;     (tv-lambda (A *)
+;;       (lambda (x A)
+;;         (lambda (xs (List A))
+;;           ((List A) (:cons x xs))))))
 
-;; (dec (to Int Int) fib)
+;; (dec append (forall (A *) (to (Lista A) (to (Lista A) (Lista A)))))
+;; (def append
+;;   (tv-lambda (A *)
+;;     (lambda xs
+;;       (lambda ys
+;;         (case ys
+;;           :prazna xs
+;;           (:spoj z zs)
+;;             ((Lista A) (:spoj z (append xs zs))))))))
+
+;;   (form Functor
+;;     (lambda (kind (to (to * *) *)) F
+;;       (variant
+;;         (:fmap
+;;           (lambda (kind (to * (to * *))) A
+;;             (lambda (kind (to * *)) B
+;;               (to (to A B) (to (F A) (F B)))))))))
+;; ;; )
+
+(dec + (to Nat (to Nat Nat)))
+(dec - (to Nat (to Nat Nat)))
+(dec < (to Nat (to Nat Bool)))
+(dec = (to Nat (to Nat Bool)))
+
+(def zero (:zero Nat))
+(def one (:succ Nat zero))
+(def two (:succ Nat one))
+
 (def fib
-  (lambda (type (to Int Int)) n
-    (case (< n 2)
+  (lambda n
+    (case (< n two)
       :true n
-      :false (+ (fib (- n 1)) (fib (- n 2))))))
+      :false (+ (fib (- n one)) (fib (- n two))))))
 
-(def (type (to Int (to Int (to Int Int))))
-  fib-iter
-    (lambda n
-    (lambda a
-    (lambda b
-      (case (= n 0)
-        :true a
-        :false (fib-iter (- n 1) b (+ a b)))))))
+(dec fib-iter (to Nat (to Nat (to Nat Nat))))
+(def fib-iter
+  (lambda (n Nat)
+    (lambda (a Nat)
+      (lambda (b Nat)
+        (case (= n zero)
+          :true a
+          :false (fib-iter (- n one) b (+ a b)))))))

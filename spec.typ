@@ -2,22 +2,22 @@
 
 #set heading(numbering: "1.")
 
-#show raw.where(lang: "dsl"): it => {
-  let matches = it.text.matches(regex("\(([^\n\r\s\)]*)"))
+// #show raw.where(lang: "dsl"): it => {
+//   let matches = it.text.matches(regex("\(([^\n\r\s\)]*)"))
 
-  for match in matches {
-    if match.captures.at(0).len() != 0 {
-      it = {
-        show match.captures.at(0): txt => text(txt, fill: blue.darken(20%))
-        it
-      }
-    }
-  }
+//   for match in matches {
+//     if match.captures.at(0).len() != 0 {
+//       it = {
+//         show match.captures.at(0): txt => text(txt, fill: blue.darken(20%))
+//         it
+//       }
+//     }
+//   }
 
-  show regex("Bool|Unit"): txt => text(txt, fill: red.darken(20%))
-  show regex("true|false|unit"): txt => text(txt, fill: green.darken(35%))
-  it
-}
+//   // show regex("Bool|Unit"): txt => text(txt, fill: red.darken(20%))
+//   // show regex("true|false|unit"): txt => text(txt, fill: green.darken(35%))
+//   it
+// }
 
 #let lisp(body) = box(raw(body, lang: "dsl"))
 #let example(body) = figure(
@@ -421,95 +421,74 @@ there exists an expression #lisp(":a") where $"atom"[#lisp(":a")] = #lisp(":e") 
 == Modules
 A _module_ is an expression of the form #lisp("(module :name ::body)") where #lisp(":name") is an atom expression.
 Expressions in #lisp("::body") are called _definitions_.
+Each definition represents a general rule axiom.
 
-// === Simple type definition
-// A definition of the form #lisp("(simple :N ::v)") defines a type $T$ where
-// + #lisp("::N") is an atom expression,
-// + $T$ is the identifier of $"name"[N]$,
-// + #lisp(":::v") consists only of atom expressions,
-// + if #lisp(":::v") consists of expressions $v_1, v_2, ..., v_n$, then $T$ contains values which are identifiers of $"name"[v_1], "name"[v_2], ..., "name"[v_n]$.
+=== Type definition
+A definition of the form #lisp("(type :T)") represents the following rule:
 
-// #example[
-//   ```dsl
-//   (simple Unit unit)
-//   (simple Bool true false)
-//   (simple Color red green blue)
-//   ```
-// ]
+$
+  prooftree(rule(Gamma tack T' : *,),)
+$
 
-// === Tuple type definition
-// A definition of the form #lisp("(tuple ::N :::X)") defines a type $(T <- (T_1 times T_2 times ... times T_n))$ where
-// + #lisp("::N") is an atom expression,
-// + $T$ is the identifier of $"name"[N]$,
-// + #lisp(":::X") consists only of atom expressions,
-// + if #lisp(":::X") consists of expressions $X_1, X_2, ..., X_n$, then $T_1, T_2, ... T_n$ are identifiers of $"name"[X_1], "name"[X_2], ..., "name"[X_n]$.
+where $T'$ is ???.
 
-// // Expressions of the form #lisp("(T x1 x2 ... xn)") evaluate to $chevron.l x_1, x_2, ..., x_n chevron.r in T$.
+A definition of the form #lisp("(value :T :v)") represents the following rule:
+*Note to self: this is what you want "dec" to be.*
 
-// #example[
-//   ```dsl
-//   (tuple Light Bool Color)
-//   ```
-// ]
+$
+  prooftree(
+    rule(
+      Gamma tack T' : *,
+      Gamma tack v' in T',
+    ),
+  )
+$
 
-// === Variant type definition
-// A definition of the form #lisp("(variant ::N :::X)") defines a new type $(T <- (T_1 + T_2 + ... + T_n))$ where
-// + #lisp("::N") is an atom expression,
-// + $T$ is the identifier of $"name"[N]$,
-// + #lisp(":::X") consists only of atom expressions,
-// + if #lisp(":::X") consists of expressions $X_1, X_2, ..., X_n$, then $T_1, T_2, ... T_n$ are identifiers of $"name"[X_1], "name"[X_2], ..., "name"[X_n]$.
-// // + #lisp(":::X") consists of expressions $X_1, X_2, ..., X_n$ such that for each $i in [1..n]$, $X_i$ is of the form #lisp("(::D ::V)") where
-// //   + #lisp("::D") is an atom expression,
-// //   + #lisp("::V") is an atom expression,
-// //   + $T_i$ is the identifier of $"name"[V]$,
+where $N'$ is ??? and $v'$ is ???.
 
-// // Expressions of the form #lisp("(di x)") evaluate to $chevron.l d_i, x chevron.r in V$.
+#example(
+  ```dsl
+  (variant N
+    (zero Unit)
+    (succ N))
 
-// #example[
-//   ```dsl
-//   (tuple Cons Bool List)
-//   (variant List Unit Cons)
-//   ```
-// ]
+  (def add n m
+    (case m
+      zero n
+      (succ p) (add (succ n) p)))
 
-// // === Generic type definition
-// // What about (lambda A (simple C a))? How to namespace/infer "a"?
+  ```,
+)
 
-// // If a definition $d$ defines a type or a type function $F$, then #lisp("(lambda A d)") defines a type function $F$.
 
-// // For all types $T$, a definition of the form #lisp("(lambda ::X ::d)") defines a type $U$. If the definition $d$ would have defined a type $T$, then #lisp("(T X)") is that type with $A := X$. If the definition $d$ would have defined a type function $F$, then #lisp("(F X)") is that type function with $A := X$.
+// ;; problems:
+// ;;  - "A" would also need its kind specified, which makes this super verbose
+// ;;  - how would "final" work? "nil" and "cons" are unrelated to "(List A)" because they require a type first.
+// ;; (type (To * *) List)                        ;; List type ctor
+// ;; (value (lambda A (List A)) nil)             ;; nil variant
+// ;; (value (lambda A (tuple A (List A))) cons)  ;; cons variant
+// ;; (final (lambda A (List A)) nil cons)        ;; patmat
 
-// // #example(
-// //   ```dsl
-// //   (lambda A
-// //     (tuple Cons A (List A)))
+// ;; ?????????
+// ;; (dec (lambda T (lambda A (T A))) nil)
+// ;; (dec (lambda T (lambda A (tuple A (T A)))) cons)
+// ;; (bundle List (nil List) (cons List))
 
-// //   (lambda A
-// //     (variant List
-// //       nil
-// //       (cons (Cons A))))
-// //   ```,
-// // )
+// ;; problems:
+// ;;   - patmat is strictily positional because there are no labels
+// ;; (lambda A
+// ;;   (type List
+// ;;     (variant
+// ;;       Unit
+// ;;       (tuple A (List A)))))
 
-// // == Function types
-// // #todo()
 
-// // #example(
-// //   ```dsl
-// //   (lambda A (lambda B (tuple To A B)))
-
-// //   (dec (To Bool Bool) not)
-// //   (dec (To Bool (To Bool Bool)) and)
-// //   (dec (To Bool Unit) forget)
-// //   ```,
-// // )
-
-// // #example(
-// //   ```dsl
-// //   (def iota
-// //     (lambda n
-// //       (if (= n 0)
-// //         nil
-// //         (cons (Cons n (iota (- n 1)))))))
-// //   ```,
-// // )
+// ;; problems:
+// ;;   - how to specify labels?
+// ;;     If I just write "nil", what is it related to?
+// ;;     Is it a function? What if two variants have the same labels?
+// ;; (lambda A
+// ;;   (type List
+// ;;     (variant
+// ;;       (nil Unit)
+// ;;       (cons (tuple A (List A))))))

@@ -4,4 +4,4 @@ DerivePointerAlignment: false
 PointerAlignment: Right
 ReferenceAlignment: Left
 AccessModifierOffset: -4
-ColumnLimit: 120
+ColumnLimit: 100

@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "compiler/include/lowerer.hpp"
+#include "compiler/include/typechecker.hpp"
 #include "parser/include/parser.hpp"
 
 int main(int argc, char *argv[]) {
@@ -40,7 +41,13 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    auto result = compiler::lower_ast(filename, *std::move(raw_ast));
+    auto ast = compiler::lower_ast(filename, *std::move(raw_ast));
+    if (not ast) {
+        std::cerr << ast.error() << '\n';
+        return EXIT_FAILURE;
+    }
+
+    auto result = typechecker::typecheck(*ast->ts, *ast);
     if (not result) {
         std::cerr << result.error() << '\n';
         return EXIT_FAILURE;
