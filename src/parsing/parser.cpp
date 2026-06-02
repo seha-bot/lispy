@@ -19,7 +19,8 @@
 namespace {
 
 struct UntypedToken {
-    UntypedToken(std::string_view::iterator begin, std::string_view::iterator end, ast::Source source)
+    UntypedToken(std::string_view::iterator begin, std::string_view::iterator end,
+                 ast::Source source)
         : m_begin(begin), m_end(end), m_source(source) {}
 
     std::string_view text() const { return std::string_view(m_begin, m_end); }
@@ -90,7 +91,8 @@ struct Lexer {
                 // TODO: add escaping and error reporting
                 // return while_([](char c) { return c != '"'; }).and_then([&](Token str) {
                 //     return char_().transform([&](Token close) {
-                //         return tok->with_extent(str).with_extent(close).with_type(TokenType::string);
+                //         return
+                //         tok->with_extent(str).with_extent(close).with_type(TokenType::string);
                 //     });
                 // });
                 todo();
@@ -102,12 +104,15 @@ struct Lexer {
                     while_(is_space);
                     return next_token();
                 } else {
-                    return std::unexpected(ParseError{ParseError::unexpected_token, tok->source_location()});
+                    return std::unexpected(
+                        ParseError{ParseError::unexpected_token, tok->source_location()});
                 }
         }
     }
 
-    std::pair<std::size_t, ast::Source> checkpoint() const noexcept { return {m_position, m_source}; }
+    std::pair<std::size_t, ast::Source> checkpoint() const noexcept {
+        return {m_position, m_source};
+    }
     void rewind(std::pair<std::size_t, ast::Source> checkpoint) noexcept {
         m_position = checkpoint.first;
         m_source = checkpoint.second;
@@ -115,13 +120,18 @@ struct Lexer {
 
 private:
     static bool is_space(char c) { return c == ' '; }
-    static bool is_text(char c) { return std::isalnum(c) or std::string_view{".!%&*/<=>?~_^|+-,\\@#:"}.contains(c); }
+    static bool is_text(char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) or
+               std::string_view{".!%&*/<=>?~_^|+-,\\@#:"}.contains(c);
+    }
 
     void push_dollar() { ++m_dollar_stack; }
     bool has_dollar() const { return m_dollar_stack != 0; }
     void pop_dollar() { --m_dollar_stack; }
 
-    UntypedToken empty() const noexcept { return UntypedToken(m_input.end(), m_input.end(), m_source); }
+    UntypedToken empty() const noexcept {
+        return UntypedToken(m_input.end(), m_input.end(), m_source);
+    }
 
     std::optional<UntypedToken> char_() noexcept {
         if (m_position == m_input.size()) {

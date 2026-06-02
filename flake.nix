@@ -9,19 +9,16 @@
     { nixpkgs, ... }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      llvmPkgs = pkgs.llvmPackages_22;
     in
     {
       devShell.x86_64-linux = pkgs.mkShell {
         nativeBuildInputs = [
-          llvmPkgs.clang-tools
-          llvmPkgs.clang
-          llvmPkgs.libllvm
-          llvmPkgs.lldb
+          pkgs.clang-tools
+          pkgs.clang
+          pkgs.cmake
+          pkgs.ninja
         ];
         packages = with pkgs; [
-          cmake
-          ninja
           pkg-config
           readline
         ];

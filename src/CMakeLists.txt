@@ -12,13 +12,13 @@ target_sources(lispy_core
 )
 target_link_libraries(lispy_core INTERFACE compiler_flags)
 
-add_subdirectory(parser)
-add_subdirectory(compiler)
-add_subdirectory(assembler)
-add_subdirectory(vm)
+add_subdirectory(analysis)
+add_subdirectory(parsing)
+# add_subdirectory(assembler)
+# add_subdirectory(vm)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(Readline REQUIRED IMPORTED_TARGET readline)
 
 add_executable(lispy main.cpp)
-target_link_libraries(lispy PRIVATE lispy_core PkgConfig::Readline parser compiler)
+target_link_libraries(lispy PRIVATE lispy_core PkgConfig::Readline analysis parsing)

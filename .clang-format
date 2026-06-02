@@ -1,7 +1,2 @@
-BasedOnStyle: Google
-IndentWidth: 4
-DerivePointerAlignment: false
-PointerAlignment: Right
-ReferenceAlignment: Left
-AccessModifierOffset: -4
+BasedOnStyle: LLVM
 ColumnLimit: 100
