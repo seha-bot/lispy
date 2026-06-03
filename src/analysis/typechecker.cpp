@@ -1,19 +1,23 @@
 #include "typechecker.hpp"
 
-#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <expected>
+#include <iostream>
+#include <optional>
+#include <ranges>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <variant>
 #include <vector>
 
 #include "ast.hpp"
+#include "storage/resolved.hpp"
 #include "todo.hpp"
 
 namespace typechecker {
+
+namespace {
 
 struct Env {
   std::unordered_map<ast::Expr const *, ast::TypeId> type_of;
@@ -52,7 +56,6 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
       if (not callee_type) {
         todo();
       }
-      auto const callee_type_str = ctx.tip(*callee_type);
 
       // TODO: this may be more efficient.
       // auto return_type = *callee_type;
@@ -229,6 +232,8 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
   return *type;
 }
 
+} // namespace
+
 std::expected<void, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
   Context ctx{*ast.ts, ast.entities, {}};
   for (std::size_t i = 0; i < ast.entities.size(); ++i) {
@@ -236,7 +241,7 @@ std::expected<void, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
     if (not res) {
       return std::unexpected(res.error());
     }
-    std::cout << ctx.ime(ast::EntityId{i}) << " : " << ctx.tip(*res) << std::endl;
+    std::cout << ctx.ime(ast::EntityId{i}) << " : " << ctx.tip(*res) << '\n';
   }
 
   todo();

@@ -2,7 +2,9 @@
 
 #include "ast.hpp"
 #include "context.hpp"
+#include "pars.hpp"
 #include "raw.hpp"
+#include "storage/resolved.hpp"
 #include "todo.hpp"
 #include <algorithm>
 #include <cstddef>
@@ -27,7 +29,7 @@ namespace shallow {
 
 std::expected<ast::ValueDefinition, Error>
 compile_shallow_entity(Context ctx, ast::ShallowValueDefinition value) {
-  auto expr = parse(raw::expr_parser(ctx), std::move(value.raw_value));
+  auto expr = parse(raw::expr_parser(std::move(ctx)), std::move(value.raw_value));
   if (not expr) {
     todo();
   }
@@ -36,7 +38,7 @@ compile_shallow_entity(Context ctx, ast::ShallowValueDefinition value) {
 
 std::expected<ast::TypeFormDefinition, Error>
 compile_shallow_entity(Context ctx, ast::ShallowTypeFormDefinition shallow_type_form) {
-  auto type = parse(raw::type_parser(ctx), std::move(shallow_type_form.raw_type));
+  auto type = parse(raw::type_parser(std::move(ctx)), std::move(shallow_type_form.raw_type));
   if (not type) {
     todo();
   }
@@ -45,8 +47,8 @@ compile_shallow_entity(Context ctx, ast::ShallowTypeFormDefinition shallow_type_
 
 std::expected<ast::ValueDeclaration, Error>
 compile_shallow_entity(Context ctx, ast::ShallowValueDeclaration shallow_value_declaration) {
-  auto type_signature =
-      parse(raw::type_parser(ctx), std::move(shallow_value_declaration.raw_type_signature));
+  auto type_signature = parse(raw::type_parser(std::move(ctx)),
+                              std::move(shallow_value_declaration.raw_type_signature));
   if (not type_signature) {
     todo();
   }
@@ -63,7 +65,8 @@ compile_shallow_entity(Context ctx,
     todo();
   }
 
-  auto expr = parse(raw::expr_parser(ctx), std::move(shallow_merged_value_definition.raw_value));
+  auto expr =
+      parse(raw::expr_parser(std::move(ctx)), std::move(shallow_merged_value_definition.raw_value));
   if (not expr) {
     todo();
   }
@@ -78,8 +81,8 @@ compile_shallow_entity(Context ctx, ast::ShallowModuleDefinition module) {
   std::unordered_map<std::string, ast::EntityId> scope_entities;
   std::vector<ast::EntityId> module_entities;
 
-  for (std::size_t i = 0; i < module.raw_entities.size(); ++i) {
-    auto shallow_entity = parse(raw::module_entity_parser(), std::move(module.raw_entities[i]));
+  for (auto &raw_entity : module.raw_entities.elements()) {
+    auto shallow_entity = parse(raw::module_entity_parser(), std::move(raw_entity));
     if (not shallow_entity) {
       todo();
     }
@@ -89,7 +92,8 @@ compile_shallow_entity(Context ctx, ast::ShallowModuleDefinition module) {
 
     if (scope_entities.contains(name)) {
       auto id = scope_entities.at(name);
-      auto i = std::ranges::find(module_entities, id) - module_entities.begin();
+      auto i = static_cast<std::size_t>(std::ranges::find(module_entities, id) -
+                                        module_entities.begin());
       auto *decl = std::get_if<ast::ShallowValueDeclaration>(&shallow_entities.at(i));
       auto *def = std::get_if<ast::ShallowValueDefinition>(&*shallow_entity);
       if (decl and def) {
@@ -101,8 +105,7 @@ compile_shallow_entity(Context ctx, ast::ShallowModuleDefinition module) {
     } else {
       shallow_entities.push_back(std::move(*shallow_entity));
       auto id = ctx.es.reserve();
-      scope_entities.insert({name, id});
-      // scope_entities.insert({std::move(name), id});
+      scope_entities.insert({std::move(name), id});
       module_entities.push_back(id);
     }
   }

@@ -183,7 +183,7 @@ template <typename T> Parser<T> list(Parser<T> parser) {
   }};
 }
 
-Parser<ast::RawExpr> raw() {
+inline Parser<ast::RawExpr> raw() {
   return {[](Input exprs) -> ParseResult<ast::RawExpr> {
     if (exprs.empty()) {
       todo();
@@ -257,15 +257,15 @@ template <typename T, typename U> Parser<U> operator>(Parser<T> a, Parser<U> b) 
   return std::move(a) >> [b = std::move(b)](auto &&) mutable { return std::move(b); };
 }
 
-Parser<std::string> atom() {
+inline Parser<std::string> atom() {
   return atom_where([](std::string_view) { return true; });
 }
 
-Parser<std::monostate> atom_exact(std::string_view value) {
+inline Parser<std::monostate> atom_exact(std::string_view value) {
   return atom_where([=](std::string_view name) { return name == value; }) > pure(std::monostate());
 }
 
-Parser<std::string> atom_starting_with(char c) {
+inline Parser<std::string> atom_starting_with(char c) {
   return atom_where([c](std::string_view name) { return name.at(0) == c; });
 }
 
