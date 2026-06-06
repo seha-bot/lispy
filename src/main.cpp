@@ -41,17 +41,6 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  // auto result = pars::parse(                             //
-  //     pars::list(                                        //
-  //         pars::many(                                    //
-  //             pars::atom_exact("num") > pars::pure(0) or //
-  //             pars::atom_exact("str") > pars::pure(1)    //
-  //             )                                          //
-  //         ),
-  //     raw_ast->at(0) //
-  // );
-  // std::terminate();
-
   auto ast = compiler::lower_ast(filename, *std::move(raw_ast));
   if (not ast) {
     std::cerr << ast.error() << '\n';
