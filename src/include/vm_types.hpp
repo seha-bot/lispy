@@ -2,7 +2,6 @@
 #define VM_TYPES_HPP
 
 #include <cstddef>
-#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -44,8 +43,6 @@ enum class Mnemonic {
 
   // Variants
   mkv,
-  setvd,
-  setvv,
   jmpvd,
 };
 
@@ -67,10 +64,6 @@ inline std::string to_string(Mnemonic m) {
     return "ret";
   case Mnemonic::mkv:
     return "mkv";
-  case Mnemonic::setvd:
-    return "setvd";
-  case Mnemonic::setvv:
-    return "setvv";
   case Mnemonic::jmpvd:
     return "jmpvd";
   }
@@ -94,10 +87,6 @@ inline std::optional<Mnemonic> mnemonic_from_string(std::string_view s) {
     return Mnemonic::ret;
   } else if (s == "mkv") {
     return Mnemonic::mkv;
-  } else if (s == "setvd") {
-    return Mnemonic::setvd;
-  } else if (s == "setvv") {
-    return Mnemonic::setvv;
   } else if (s == "jmpvd") {
     return Mnemonic::jmpvd;
   } else {
@@ -128,10 +117,6 @@ inline OperandType mnemonic_operand_type(Mnemonic m) {
   case Mnemonic::ret:
     return OperandType::none;
   case Mnemonic::mkv:
-    return OperandType::none;
-  case Mnemonic::setvd:
-    return OperandType::none;
-  case Mnemonic::setvv:
     return OperandType::none;
   case Mnemonic::jmpvd:
     return OperandType::none;

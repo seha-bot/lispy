@@ -14,13 +14,12 @@
 namespace {
 
 struct Variant {
-  vm::Byte discriminator;
   vm::Byte value;
+  vm::Byte discriminator;
 };
 
 struct Machine {
   vm::Byte &unsafe_seek(std::size_t i) { return m_stack.at(m_stack.size() - 1 - i); }
-  vm::Byte &unsafe_top() { return unsafe_seek(0); }
 
   Variant &unsafe_seek_variant(std::size_t i) {
     return *reinterpret_cast<Variant *>(unsafe_seek(i).value());
@@ -115,7 +114,7 @@ std::expected<vm::InstrPtr, StepResult> step(Machine &m, Decoder &dec, vm::Instr
     if (not m.has(i.value() + 1)) {
       return std::unexpected(StepResult::stack_overrun);
     }
-    m.unsafe_seek(i.value()) = m.unsafe_top();
+    m.unsafe_seek(i.value()) = m.unsafe_seek(0);
     m.unsafe_pop();
     return ip.advance(dec.instr_size(vm::Mnemonic::seti, i));
   }
@@ -138,28 +137,14 @@ std::expected<vm::InstrPtr, StepResult> step(Machine &m, Decoder &dec, vm::Instr
     return m.unsafe_pop_call();
   }
   case vm::Mnemonic::mkv: {
-    m.push_variant(new Variant{vm::Byte(0), vm::Byte(0)});
+    if (not m.has(2)) {
+      return std::unexpected(StepResult::stack_overrun);
+    }
+    auto value = m.unsafe_seek(1);
+    auto discriminator = m.unsafe_seek(0);
+    m.unsafe_pop_n(2);
+    m.push_variant(new Variant{value, discriminator});
     return ip.advance(dec.instr_size(vm::Mnemonic::mkv));
-  }
-  case vm::Mnemonic::setvd: {
-    if (not m.has(2)) {
-      return std::unexpected(StepResult::stack_overrun);
-    }
-    Variant &v = m.unsafe_seek_variant(1);
-    auto d = m.unsafe_top();
-    v.discriminator = d;
-    m.unsafe_pop();
-    return ip.advance(dec.instr_size(vm::Mnemonic::setvd));
-  }
-  case vm::Mnemonic::setvv: {
-    if (not m.has(2)) {
-      return std::unexpected(StepResult::stack_overrun);
-    }
-    Variant &v = m.unsafe_seek_variant(1);
-    auto d = m.unsafe_top();
-    v.value = d;
-    m.unsafe_pop();
-    return ip.advance(dec.instr_size(vm::Mnemonic::setvv));
   }
   case vm::Mnemonic::jmpvd: {
     if (not m.has(2)) {
