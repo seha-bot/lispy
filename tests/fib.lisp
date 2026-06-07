@@ -1,78 +1,61 @@
-;; ;; (module Prelude
+(form Bool (variant :true :false))
 
-;;   (form Never (variant))
-;;   (form Unit (variant :unit))
-  (form Bool (variant :true :false))
+(def true (:true Bool))
+(def false (:false Bool))
 
-  (form Nat
-    (variant
-      :zero
-      (:succ Nat)))
+(form Nat
+  (variant
+    :zero
+    (:succ Nat)))
 
-;;   (def add
-;;     (lambda (n Nat)
-;;       (lambda (m Nat)
-;;         (case m
-;;           :zero n
-;;           (:succ p) (add (Nat (:succ n)) p)))))
-
-;;   (form List
-;;     (tt-lambda (A *)
-;;       (variant
-;;         (:nil Unit)
-;;         (:cons (tuple A (List A))))))
-
-;;   (form ListN
-;;     (variant
-;;       :nil
-;;       (:cons (tuple N (ListN N)))))
-
-;; (def prazna
-;;   (tv-lambda (A *)
-;;     (lambda (l (Lista A))
-;;       (case l
-;;         :prazna :true
-;;         (:spoj _ _) :false))))
-
-;;   ;; (dec empty (forall (A *) (List A)))
-;;   (def empty
-;;     (tv-lambda (A *)
-;;       ((List A) (:nil (Unit :unit)))))
-
-;;   ;; (dec prepend (forall (A *) (to A (to (List A) (List A)))))
-;;   (def prepend
-;;     (tv-lambda (A *)
-;;       (lambda (x A)
-;;         (lambda (xs (List A))
-;;           ((List A) (:cons x xs))))))
-
-;; (dec append (forall (A *) (to (Lista A) (to (Lista A) (Lista A)))))
-;; (def append
-;;   (tv-lambda (A *)
-;;     (lambda xs
-;;       (lambda ys
-;;         (case ys
-;;           :prazna xs
-;;           (:spoj z zs)
-;;             ((Lista A) (:spoj z (append xs zs))))))))
-
-;;   (form Functor
-;;     (lambda (kind (to (to * *) *)) F
-;;       (variant
-;;         (:fmap
-;;           (lambda (kind (to * (to * *))) A
-;;             (lambda (kind (to * *)) B
-;;               (to (to A B) (to (F A) (F B)))))))))
-;; ;; )
+(def succ (lambda (n Nat) (:succ Nat n)))
+(def zero (:zero Nat))
+(def one (succ zero))
+(def two (succ one))
 
 (dec + (to Nat (to Nat Nat)))
-(dec - (to Nat (to Nat Nat)))
-(dec < (to Nat (to Nat Bool)))
-(dec = (to Nat (to Nat Bool)))
+(def +
+  (lambda (n Nat)
+    (lambda (m Nat)
+      (case m
+        :zero n
+        (:succ p) (+ (succ n) p)))))
 
-(def zero (:zero Nat))
-(def one (:succ Nat zero))
-(def two (:succ Nat one))
+(dec - (to Nat (to Nat Nat)))
+(def -
+  (lambda (n Nat)
+    (lambda (m Nat)
+      (case m
+        :zero n
+        (:succ mp)
+          (case n
+            :zero zero
+            (:succ np) (- np mp))))))
+
+(dec < (to Nat (to Nat Bool)))
+(def <
+  (lambda (n Nat)
+    (lambda (m Nat)
+      (case m
+        :zero false
+        (:succ mp)
+          (case n
+            :zero true
+            (:succ np) (< np mp))))))
+
+(dec = (to Nat (to Nat Bool)))
+(def =
+  (lambda (n Nat)
+    (lambda (m Nat)
+      (case m
+        :zero
+          (case n
+            :zero true
+            (:succ np) false)
+        (:succ mp)
+          (case n
+            :zero false
+            (:succ np) (= mp np))))))
 
 (def fib
   (lambda n

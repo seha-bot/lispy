@@ -112,6 +112,9 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
 
       std::optional<ast::TypeId> common_arm_type;
       for (auto &[pattern, arm] : case_.alternatives) {
+        // FIX: pattern variable should be checked against the declared type.
+        pattern;
+
         auto arm_type = get_type(ctx, arm);
         if (not arm_type) {
           todo();
@@ -208,7 +211,9 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
     }
     std::expected<ast::TypeId, Error> operator()(ast::TVLambda::Parameter const &) { todo(); }
     std::expected<ast::TypeId, Error> operator()(ast::TTLambda::Parameter const &) { todo(); }
-    std::expected<ast::TypeId, Error> operator()(ast::PatternBinding const &) { todo(); }
+    std::expected<ast::TypeId, Error> operator()(ast::PatternBinding const &) {
+      return ctx.ts.make_variable();
+    }
 
     Context &ctx;
   };
