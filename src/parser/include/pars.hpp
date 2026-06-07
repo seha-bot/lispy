@@ -261,8 +261,8 @@ inline Parser<std::string> atom() {
   return atom_where([](std::string_view) { return true; });
 }
 
-inline Parser<std::monostate> atom_exact(std::string_view value) {
-  return atom_where([=](std::string_view name) { return name == value; }) > pure(std::monostate());
+inline Parser<std::string> atom_exact(std::string_view value) {
+  return atom_where([=](std::string_view name) { return name == value; });
 }
 
 inline Parser<std::string> atom_starting_with(char c) {

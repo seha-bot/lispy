@@ -6,9 +6,9 @@ target_compile_options(compiler_flags INTERFACE -Wall -Wextra -Wpedantic -Wunuse
 # Core library for linking with all targets
 add_library(lispy_core INTERFACE)
 target_sources(lispy_core
-    INTERFACE
-    FILE_SET HEADERS
-    BASE_DIRS include
+  INTERFACE
+  FILE_SET HEADERS
+  BASE_DIRS include
 )
 target_link_libraries(lispy_core INTERFACE compiler_flags)
 

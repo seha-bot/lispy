@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "bytecoder.hpp"
-#include "gc.hpp"
 #include "vm_types.hpp"
 
 namespace {
@@ -23,8 +22,16 @@ struct Machine {
   vm::Byte &unsafe_seek(std::size_t i) { return m_stack.at(m_stack.size() - 1 - i); }
   vm::Byte &unsafe_top() { return unsafe_seek(0); }
 
+  Variant &unsafe_seek_variant(std::size_t i) {
+    return *reinterpret_cast<Variant *>(unsafe_seek(i).value());
+  }
+
   void push(vm::Byte obj) { m_stack.push_back(obj); }
   void push_call(vm::InstrPtr ip) { m_return_stack.push_back(ip); }
+
+  void push_variant(Variant *v) {
+    push(vm::Byte(static_cast<std::size_t>(reinterpret_cast<std::uintptr_t>(v))));
+  }
 
   vm::Byte unsafe_pop() {
     auto top = m_stack.back();
@@ -47,7 +54,7 @@ private:
   std::vector<vm::InstrPtr> m_return_stack;
 };
 
-enum class StepResult {
+enum class StepResult : unsigned char {
   stack_overrun,
   call_stack_overrun,
   mismatched_type,
@@ -82,8 +89,7 @@ struct Decoder {
   bytecoder::Bytecode bc;
 };
 
-std::expected<vm::InstrPtr, StepResult> step(GC &gc, Machine &m, Decoder &dec,
-                                             vm::InstrPtr ip) noexcept {
+std::expected<vm::InstrPtr, StepResult> step(Machine &m, Decoder &dec, vm::InstrPtr ip) noexcept {
   auto opcode = dec.opcode(ip);
   switch (opcode) {
   case vm::Mnemonic::push: {
@@ -132,23 +138,26 @@ std::expected<vm::InstrPtr, StepResult> step(GC &gc, Machine &m, Decoder &dec,
     return m.unsafe_pop_call();
   }
   case vm::Mnemonic::mkv: {
-    std::size_t p = reinterpret_cast<std::intptr_t>(new Variant{vm::Byte(0), vm::Byte(0)});
-    m.push(vm::Byte(p));
+    m.push_variant(new Variant{vm::Byte(0), vm::Byte(0)});
     return ip.advance(dec.instr_size(vm::Mnemonic::mkv));
   }
   case vm::Mnemonic::setvd: {
-    auto p = m.unsafe_seek(1);
-    Variant *v = reinterpret_cast<Variant *>(p.value());
+    if (not m.has(2)) {
+      return std::unexpected(StepResult::stack_overrun);
+    }
+    Variant &v = m.unsafe_seek_variant(1);
     auto d = m.unsafe_top();
-    v->discriminator = d;
+    v.discriminator = d;
     m.unsafe_pop();
     return ip.advance(dec.instr_size(vm::Mnemonic::setvd));
   }
   case vm::Mnemonic::setvv: {
-    auto p = m.unsafe_seek(1);
-    Variant *v = reinterpret_cast<Variant *>(p.value());
+    if (not m.has(2)) {
+      return std::unexpected(StepResult::stack_overrun);
+    }
+    Variant &v = m.unsafe_seek_variant(1);
     auto d = m.unsafe_top();
-    v->value = d;
+    v.value = d;
     m.unsafe_pop();
     return ip.advance(dec.instr_size(vm::Mnemonic::setvv));
   }
@@ -156,16 +165,16 @@ std::expected<vm::InstrPtr, StepResult> step(GC &gc, Machine &m, Decoder &dec,
     if (not m.has(2)) {
       return std::unexpected(StepResult::stack_overrun);
     }
-    Variant *v = reinterpret_cast<Variant *>(m.unsafe_top().value());
+    Variant const &v = m.unsafe_seek_variant(0);
     auto n = m.unsafe_seek(1);
     m.unsafe_pop();
     m.unsafe_pop();
     if (not m.has(n.value())) {
       return std::unexpected(StepResult::stack_overrun);
     }
-    auto fn = m.unsafe_seek(n.value() - 1 - v->discriminator.value());
+    auto fn = m.unsafe_seek(n.value() - 1 - v.discriminator.value());
     m.unsafe_pop_n(n.value());
-    m.push(v->value);
+    m.push(v.value);
     return vm::InstrPtr(fn);
   }
   }
@@ -198,7 +207,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  GC gc;
   Machine m;
   m.push_call(vm::InstrPtr(vm::Byte(dec.bc.size())));
 
@@ -208,7 +216,7 @@ int main(int argc, char *argv[]) {
       break;
     }
 
-    auto next_ip = step(gc, m, dec, ip);
+    auto next_ip = step(m, dec, ip);
     if (not next_ip) {
       std::cout << "[Error] at \"" << to_string(dec.opcode(ip)) << "\": " << next_ip.error()
                 << '\n';

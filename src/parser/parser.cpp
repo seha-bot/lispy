@@ -100,7 +100,12 @@ struct Lexer {
     default:
       if (is_text(first)) {
         rewind(cp);
-        return Token(*while_(is_text), TokenType::text);
+        auto text = while_(is_text);
+        if (not text) {
+          // SAFETY: checked that the first one is_text
+          std::unreachable();
+        }
+        return Token(*text, TokenType::text);
       } else if (is_space(first)) {
         while_(is_space);
         return next_token();

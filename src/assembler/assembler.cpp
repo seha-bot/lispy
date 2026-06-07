@@ -1,10 +1,13 @@
 #include <cctype>
+#include <charconv>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -105,7 +108,7 @@ ParseResult parse_line(int line_num, std::string line) {
     if (words.size() != 2) {
       fail(line_num, "Expected operand.");
     }
-    std::size_t number;
+    std::size_t number = 0;
     // TODO: check result
     std::from_chars(words[1].data(), words[1].data() + words[1].size(), number);
     return NumberOperandInstruction{mnemonic, vm::Byte(number)};
@@ -132,7 +135,8 @@ void assemble(std::ostream &os, vm::InstrPtr entry_point, std::vector<Instructio
       void operator()(NumberOperandInstruction instr) {
         bytecoder::write_n(os, static_cast<std::uint64_t>(instr.operand.value()), 8);
       }
-      void operator()(LabelOperandInstruction instr) {
+      void operator()(LabelOperandInstruction const &instr) {
+        // TODO: you want to move operand if it doesn't get used later.
         auto it = global_labels.find(instr.operand);
         if (it == global_labels.end()) {
           // TODO: what to do here man...
