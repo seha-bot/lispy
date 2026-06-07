@@ -4,7 +4,7 @@
 #include "context.hpp"
 #include "pars.hpp"
 
-namespace raw {
+namespace parser::raw {
 
 using namespace pars;
 
@@ -174,6 +174,6 @@ Parser<ast::ShallowEntity> module_entity_parser() {
   }));
 };
 
-} // namespace raw
+} // namespace parser::raw
 
 #endif

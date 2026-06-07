@@ -15,7 +15,7 @@
 #include "storage/resolved.hpp"
 #include "todo.hpp"
 
-namespace typechecker {
+namespace analyser {
 
 namespace {
 
@@ -253,4 +253,4 @@ std::expected<void, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
   return {};
 }
 
-} // namespace typechecker
+} // namespace analyser

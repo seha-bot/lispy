@@ -5,9 +5,9 @@
 #include <string>
 #include <utility>
 
-#include "analysis/include/typechecker.hpp"
-#include "parsing/include/lowerer.hpp"
-#include "parsing/include/parser.hpp"
+#include "analyser/include/typechecker.hpp"
+#include "parser/include/lowerer.hpp"
+#include "parser/include/parser.hpp"
 
 int main(int argc, char *argv[]) {
   if (argc != 2) {
@@ -35,19 +35,19 @@ int main(int argc, char *argv[]) {
   //     return EXIT_FAILURE;
   // }
 
-  auto raw_ast = parse_source(source);
+  auto raw_ast = parser::parse_source(source);
   if (not raw_ast) {
     std::cerr << raw_ast.error() << '\n';
     return EXIT_FAILURE;
   }
 
-  auto ast = compiler::lower_ast(filename, *std::move(raw_ast));
+  auto ast = parser::lower_ast(filename, *std::move(raw_ast));
   if (not ast) {
     std::cerr << ast.error() << '\n';
     return EXIT_FAILURE;
   }
 
-  auto result = typechecker::typecheck(*ast);
+  auto result = analyser::typecheck(*ast);
   if (not result) {
     std::cerr << result.error() << '\n';
     return EXIT_FAILURE;

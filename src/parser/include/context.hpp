@@ -2,9 +2,11 @@
 #define CONTEXT_HPP
 
 #include "ast.hpp"
-#include "storage/type_storage.hpp"
 #include "storage/entity_storage.hpp"
+#include "storage/type_storage.hpp"
 #include <optional>
+
+namespace parser {
 
 struct Scope {
   std::optional<ast::EntityId> lookup(std::string_view name) const {
@@ -23,11 +25,11 @@ struct Scope {
 };
 
 struct Context {
-  Context(storage::TypeStorage &ts, EntityStorage &es, std::shared_ptr<Scope> scope)
-      : ts(ts), es(es), m_scope(std::move(scope)) {}
+  Context(storage::TypeStorage &ts_, storage::EntityStorage &es_, std::shared_ptr<Scope> scope)
+      : ts(ts_), es(es_), m_scope(std::move(scope)) {}
 
-  Context(storage::TypeStorage &ts, EntityStorage &es)
-      : Context(ts, es, std::make_shared<Scope>()) {}
+  Context(storage::TypeStorage &ts_, storage::EntityStorage &es_)
+      : Context(ts_, es_, std::make_shared<Scope>()) {}
 
   Context with_names(std::unordered_map<std::string, ast::EntityId> entities) const {
     return {ts, es, std::make_shared<Scope>(std::move(entities), m_scope)};
@@ -36,10 +38,12 @@ struct Context {
   std::optional<ast::EntityId> lookup(std::string_view name) const { return m_scope->lookup(name); }
 
   storage::TypeStorage &ts;
-  EntityStorage &es;
+  storage::EntityStorage &es;
 
 private:
   std::shared_ptr<Scope> m_scope;
 };
+
+} // namespace parser
 
 #endif

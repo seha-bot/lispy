@@ -6,7 +6,7 @@
 
 #include "storage/resolved.hpp"
 
-namespace typechecker {
+namespace analyser {
 
 struct Error {
   friend std::ostream &operator<<(std::ostream &os, Error) { return os; }
@@ -14,6 +14,6 @@ struct Error {
 
 std::expected<void, Error> typecheck(storage::ResolvedAST const &ast) noexcept;
 
-} // namespace typechecker
+} // namespace analyser
 
 #endif

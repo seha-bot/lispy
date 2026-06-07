@@ -16,19 +16,19 @@
 #include <variant>
 #include <vector>
 
-namespace compiler {
+namespace parser {
 
 namespace {
 
 // vacant is a cool word
 
-std::expected<ast::Entity, Error> compile_shallow_entity(Context ctx,
-                                                         ast::ShallowEntity entity) noexcept;
+std::expected<ast::Entity, Error> lower_shallow_entity(Context ctx,
+                                                       ast::ShallowEntity entity) noexcept;
 
 namespace shallow {
 
-std::expected<ast::ValueDefinition, Error>
-compile_shallow_entity(Context ctx, ast::ShallowValueDefinition value) {
+std::expected<ast::ValueDefinition, Error> lower_entity(Context ctx,
+                                                        ast::ShallowValueDefinition value) {
   auto expr = parse(raw::expr_parser(std::move(ctx)), std::move(value.raw_value));
   if (not expr) {
     todo();
@@ -37,7 +37,7 @@ compile_shallow_entity(Context ctx, ast::ShallowValueDefinition value) {
 }
 
 std::expected<ast::TypeFormDefinition, Error>
-compile_shallow_entity(Context ctx, ast::ShallowTypeFormDefinition shallow_type_form) {
+lower_entity(Context ctx, ast::ShallowTypeFormDefinition shallow_type_form) {
   auto type = parse(raw::type_parser(std::move(ctx)), std::move(shallow_type_form.raw_type));
   if (not type) {
     todo();
@@ -46,7 +46,7 @@ compile_shallow_entity(Context ctx, ast::ShallowTypeFormDefinition shallow_type_
 }
 
 std::expected<ast::ValueDeclaration, Error>
-compile_shallow_entity(Context ctx, ast::ShallowValueDeclaration shallow_value_declaration) {
+lower_entity(Context ctx, ast::ShallowValueDeclaration shallow_value_declaration) {
   auto type_signature = parse(raw::type_parser(std::move(ctx)),
                               std::move(shallow_value_declaration.raw_type_signature));
   if (not type_signature) {
@@ -57,8 +57,7 @@ compile_shallow_entity(Context ctx, ast::ShallowValueDeclaration shallow_value_d
 }
 
 std::expected<ast::MergedValueDefinition, Error>
-compile_shallow_entity(Context ctx,
-                       ast::ShallowMergedValueDefinition shallow_merged_value_definition) {
+lower_entity(Context ctx, ast::ShallowMergedValueDefinition shallow_merged_value_definition) {
   auto type_signature =
       parse(raw::type_parser(ctx), std::move(shallow_merged_value_definition.raw_type_signature));
   if (not type_signature) {
@@ -75,8 +74,8 @@ compile_shallow_entity(Context ctx,
                                     *std::move(type_signature), *std::move(expr)};
 }
 
-std::expected<ast::ModuleDefinition, Error>
-compile_shallow_entity(Context ctx, ast::ShallowModuleDefinition module) {
+std::expected<ast::ModuleDefinition, Error> lower_entity(Context ctx,
+                                                         ast::ShallowModuleDefinition module) {
   std::vector<ast::ShallowEntity> shallow_entities;
   std::unordered_map<std::string, ast::EntityId> scope_entities;
   std::vector<ast::EntityId> module_entities;
@@ -114,7 +113,7 @@ compile_shallow_entity(Context ctx, ast::ShallowModuleDefinition module) {
 
   // TODO: reserve
   for (std::size_t i = 0; i < shallow_entities.size(); ++i) {
-    auto res = compiler::compile_shallow_entity(module_ctx, std::move(shallow_entities[i]));
+    auto res = lower_shallow_entity(module_ctx, std::move(shallow_entities[i]));
     if (not res) {
       return std::unexpected(res.error());
     }
@@ -126,12 +125,11 @@ compile_shallow_entity(Context ctx, ast::ShallowModuleDefinition module) {
 
 } // namespace shallow
 
-// TODO: don't name this the same way as the overloads in shallow::
-std::expected<ast::Entity, Error> compile_shallow_entity(Context ctx,
-                                                         ast::ShallowEntity entity) noexcept {
+std::expected<ast::Entity, Error> lower_shallow_entity(Context ctx,
+                                                       ast::ShallowEntity entity) noexcept {
   return std::visit(
       [ctx](auto unwrapped_entity) -> std::expected<ast::Entity, Error> {
-        auto res = shallow::compile_shallow_entity(ctx, std::move(unwrapped_entity));
+        auto res = shallow::lower_entity(ctx, std::move(unwrapped_entity));
         if (not res) {
           return std::unexpected(res.error());
         }
@@ -145,10 +143,10 @@ std::expected<ast::Entity, Error> compile_shallow_entity(Context ctx,
 std::expected<storage::ResolvedAST, Error> lower_ast(std::string filename,
                                                      std::vector<ast::RawExpr> ast) noexcept {
   auto ts = std::make_unique<storage::TypeStorage>();
-  EntityStorage storage;
+  storage::EntityStorage storage;
   auto shallow_module =
       ast::ShallowModuleDefinition{std::move(filename), ast::List(std::move(ast), ast::Source{})};
-  auto module = shallow::compile_shallow_entity(Context(*ts, storage), std::move(shallow_module));
+  auto module = shallow::lower_entity(Context(*ts, storage), std::move(shallow_module));
   if (not module) {
     todo();
   }
@@ -156,7 +154,7 @@ std::expected<storage::ResolvedAST, Error> lower_ast(std::string filename,
   return storage::ResolvedAST{*std::move(module), std::move(ts), storage.produce()};
 }
 
-} // namespace compiler
+} // namespace parser
 
 bool ast::TypeId::operator==(TypeId const &that) const { return m_rep->equal(*this, that); }
 std::string ast::TypeId::to_string() const {

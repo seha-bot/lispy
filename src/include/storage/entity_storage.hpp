@@ -4,6 +4,8 @@
 #include "ast.hpp"
 #include "todo.hpp"
 
+namespace storage {
+
 struct EntityStorage {
   ast::EntityId reserve() {
     ast::EntityId id(m_entities.size());
@@ -63,5 +65,7 @@ private:
   using Hasher = decltype([](ast::Label const &l) { return std::hash<std::string>{}(l.name); });
   std::unordered_map<ast::Label, ast::LabelId, Hasher> m_labels;
 };
+
+} // namespace storage
 
 #endif

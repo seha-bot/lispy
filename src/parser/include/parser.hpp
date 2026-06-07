@@ -7,6 +7,8 @@
 
 #include "ast.hpp"
 
+namespace parser {
+
 struct ParseError {
   enum {
     end_of_input,
@@ -33,5 +35,7 @@ inline std::ostream &operator<<(std::ostream &os, ParseError const &e) {
 }
 
 std::expected<std::vector<ast::RawExpr>, ParseError> parse_source(std::string_view input) noexcept;
+
+} // namespace parser
 
 #endif

@@ -9,7 +9,7 @@
 #include <expected>
 #include <functional>
 
-namespace pars {
+namespace parser::pars {
 
 template <typename T>
 auto to = []<typename... Ts>(Ts &&...args) { return T(std::forward<Ts>(args)...); };
@@ -285,6 +285,6 @@ template <typename T, typename... Ts> Parser<T> unify(std::tuple<Ts...> parsers)
 
 #undef PROPAGATE
 
-} // namespace pars
+} // namespace parser::pars
 
 #endif
