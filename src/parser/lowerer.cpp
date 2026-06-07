@@ -27,9 +27,9 @@ std::expected<ast::Entity, Error> lower_shallow_entity(Context ctx,
 
 namespace shallow {
 
-std::expected<ast::ValueDefinition, Error> lower_entity(Context ctx,
+std::expected<ast::ValueDefinition, Error> lower_entity(Context const &ctx,
                                                         ast::ShallowValueDefinition value) {
-  auto expr = parse(raw::expr_parser(std::move(ctx)), std::move(value.raw_value));
+  auto expr = parse(raw::expr_parser(ctx), std::move(value.raw_value));
   if (not expr) {
     todo();
   }
@@ -57,15 +57,15 @@ lower_entity(Context ctx, ast::ShallowValueDeclaration shallow_value_declaration
 }
 
 std::expected<ast::MergedValueDefinition, Error>
-lower_entity(Context ctx, ast::ShallowMergedValueDefinition shallow_merged_value_definition) {
+lower_entity(Context const &ctx,
+             ast::ShallowMergedValueDefinition shallow_merged_value_definition) {
   auto type_signature =
       parse(raw::type_parser(ctx), std::move(shallow_merged_value_definition.raw_type_signature));
   if (not type_signature) {
     todo();
   }
 
-  auto expr =
-      parse(raw::expr_parser(std::move(ctx)), std::move(shallow_merged_value_definition.raw_value));
+  auto expr = parse(raw::expr_parser(ctx), std::move(shallow_merged_value_definition.raw_value));
   if (not expr) {
     todo();
   }
@@ -156,6 +156,7 @@ std::expected<storage::ResolvedAST, Error> lower_ast(std::string filename,
 
 } // namespace parser
 
+// FIX: this doesn't belong here!!!
 bool ast::TypeId::operator==(TypeId const &that) const { return m_rep->equal(*this, that); }
 std::string ast::TypeId::to_string() const {
   return std::to_string(m_rep->representative(*this).m_id);
