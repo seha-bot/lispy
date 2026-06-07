@@ -44,6 +44,10 @@ enum class Mnemonic {
   // Variants
   mkv,
   jmpvd,
+
+  // Arrays
+  mka,
+  geta,
 };
 
 inline std::string to_string(Mnemonic m) {
@@ -66,6 +70,10 @@ inline std::string to_string(Mnemonic m) {
     return "mkv";
   case Mnemonic::jmpvd:
     return "jmpvd";
+  case Mnemonic::mka:
+    return "mka";
+  case Mnemonic::geta:
+    return "geta";
   }
   return "unknown";
 }
@@ -89,6 +97,10 @@ inline std::optional<Mnemonic> mnemonic_from_string(std::string_view s) {
     return Mnemonic::mkv;
   } else if (s == "jmpvd") {
     return Mnemonic::jmpvd;
+  } else if (s == "mka") {
+    return Mnemonic::mka;
+  } else if (s == "geta") {
+    return Mnemonic::geta;
   } else {
     return std::nullopt;
   }
@@ -119,6 +131,10 @@ inline OperandType mnemonic_operand_type(Mnemonic m) {
   case Mnemonic::mkv:
     return OperandType::none;
   case Mnemonic::jmpvd:
+    return OperandType::none;
+  case Mnemonic::mka:
+    return OperandType::none;
+  case Mnemonic::geta:
     return OperandType::none;
   }
 

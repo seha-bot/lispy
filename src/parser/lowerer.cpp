@@ -1,11 +1,5 @@
 #include "lowerer.hpp"
 
-#include "ast.hpp"
-#include "context.hpp"
-#include "pars.hpp"
-#include "raw.hpp"
-#include "storage/resolved.hpp"
-#include "todo.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <expected>
@@ -15,6 +9,13 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+#include "ast.hpp"
+#include "context.hpp"
+#include "pars.hpp"
+#include "raw.hpp"
+#include "storage/resolved.hpp"
+#include "todo.hpp"
 
 namespace parser {
 
