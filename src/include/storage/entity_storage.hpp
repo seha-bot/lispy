@@ -1,6 +1,8 @@
 #ifndef ENTITY_STORAGE
 #define ENTITY_STORAGE
 
+#include <unordered_map>
+
 #include "ast.hpp"
 #include "todo.hpp"
 
@@ -13,7 +15,7 @@ struct EntityStorage {
     return id;
   }
 
-  void store(ast::EntityId id, ast::Entity entity) { m_entities[id.id] = std::move(entity); }
+  void store(ast::EntityId id, ast::Entity entity) { m_entities[id.value] = std::move(entity); }
 
   ast::EntityId reserve_store(ast::Entity entity) {
     auto id = reserve();
@@ -22,9 +24,8 @@ struct EntityStorage {
   }
 
   std::optional<std::string_view> name_of(ast::EntityId id) const {
-    return m_entities[id.id].transform([](auto &entity) {
-      return std::visit([](auto &e) -> std::string_view { return e.name; }, entity);
-    });
+    return m_entities[id.value].transform(
+        [](ast::Entity const &entity) -> std::string_view { return entity.name(); });
   }
 
   std::vector<ast::Entity> produce() {
@@ -51,13 +52,18 @@ struct EntityStorage {
   }
 
   ast::TypeFormDefinition *get_if_type_form_definition(ast::EntityId id) {
-    auto &entity_opt = m_entities[id.id];
+    auto &entity_opt = m_entities[id.value];
     if (not entity_opt) {
       // TODO: i think this triggers when you try constructing a recursive type
       // which can never be constructed.
       todo();
     }
     return std::get_if<ast::TypeFormDefinition>(&*entity_opt);
+  }
+
+  bool is_lambda_parameter(ast::EntityId id) const {
+    auto &entity = m_entities.at(id.value);
+    return entity and std::holds_alternative<ast::Lambda::Parameter>(*entity);
   }
 
 private:

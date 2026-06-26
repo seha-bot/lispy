@@ -78,7 +78,7 @@ struct TypeStorage {
       return variant->elements;
     }
     if (auto *type = std::get_if<ast::TypeReference>(&read(id))) {
-      auto &ent = entities[type->definition.id];
+      auto &ent = entities[type->definition.value];
       if (auto *def = std::get_if<ast::TypeFormDefinition>(&ent)) {
         return get_variants(entities, def->type);
       } else {
@@ -119,6 +119,10 @@ private:
   mutable RepresentativeSets m_rep;
   std::vector<ast::Type> m_types;
   std::size_t m_variable_id = 0;
+};
+
+struct TypeEnv {
+  std::unordered_map<ast::Expr const *, ast::TypeId> type_of;
 };
 
 } // namespace storage

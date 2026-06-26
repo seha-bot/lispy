@@ -66,7 +66,7 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
   });
 }
 
-Parser<ast::Case::Arm> case_arm_parser(Context ctx) noexcept {
+Parser<ast::Case::Alternative> case_arm_parser(Context ctx) noexcept {
   auto atom_pat = [ctx](std::string name) -> ast::Case::Pattern {
     auto label_id = ctx.es.get_label(std::move(name));
     return ast::Case::Pattern(label_id, std::nullopt);
@@ -79,14 +79,14 @@ Parser<ast::Case::Arm> case_arm_parser(Context ctx) noexcept {
     return std::make_pair(new_ctx, ast::Case::Pattern(label_id, variable_id));
   };
 
-  auto list_arm = [](std::pair<Context, ast::Case::Pattern> p) -> Parser<ast::Case::Arm> {
+  auto list_arm = [](std::pair<Context, ast::Case::Pattern> p) -> Parser<ast::Case::Alternative> {
     auto [new_ctx, pat] = p;
     return expr_parser(new_ctx) |
-           [pat](ast::Expr expr) { return ast::Case::Arm(pat, std::move(expr)); };
+           [pat](ast::Expr expr) { return ast::Case::Alternative(pat, std::move(expr)); };
   };
 
   return ANY({
-      seq(to<ast::Case::Arm>, atom_starting_with(':') | atom_pat, expr_parser(ctx)),
+      seq(to<ast::Case::Alternative>, atom_starting_with(':') | atom_pat, expr_parser(ctx)),
       list(seq(list_pat, atom_starting_with(':'), atom())) >> list_arm,
   });
 }
@@ -105,14 +105,17 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
 
     return std::move(raw_parameter_parser) >> [](std::pair<Context, ast::EntityId> p) {
       auto [new_ctx, parameter_id] = p;
-      return expr_parser(new_ctx) | [parameter_id](ast::Expr body) {
-        return ast::Lambda{parameter_id, std::make_unique<ast::Expr>(std::move(body))};
+      return expr_parser(new_ctx) | [new_ctx, parameter_id](ast::Expr body) {
+        std::vector<ast::EntityId> captures(new_ctx.captures().begin(), new_ctx.captures().end());
+        return ast::Lambda{std::move(captures), parameter_id,
+                           std::make_unique<ast::Expr>(std::move(body))};
       };
     };
   };
 
   auto case_parser = [ctx](std::string const &) -> Parser<ast::Case> {
-    auto construct_case = [](ast::Expr scrutinee, std::vector<ast::Case::Arm> alternatives) {
+    auto construct_case = [](ast::Expr scrutinee,
+                             std::vector<ast::Case::Alternative> alternatives) {
       return ast::Case{std::make_unique<ast::Expr>(std::move(scrutinee)), std::move(alternatives)};
     };
 
@@ -137,14 +140,15 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
   });
 }
 
-Parser<ast::Expr> expr_parser(Context const &ctx) noexcept {
+Parser<ast::Expr> expr_parser(Context ctx) noexcept {
   auto name_defined = [ctx](std::string_view name) { return !!ctx.lookup(name); };
 
-  auto to_entity_reference = [ctx](std::string const &name) -> ast::Expr {
+  auto to_entity_reference = [ctx](std::string const &name) mutable -> ast::Expr {
     auto entity_id = ctx.lookup(name);
     if (not entity_id) {
       todo();
     }
+    ctx.capture(*entity_id);
     return ast::EntityReference(*entity_id);
   };
 

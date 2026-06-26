@@ -5,10 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <ranges>
 #include <string>
-#include <string_view>
-#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -73,9 +70,11 @@ inline std::size_t List::size() const { return m_elements.size(); }
 inline RawExpr &List::operator[](std::size_t i) { return m_elements[i]; }
 inline std::vector<RawExpr> &List::elements() { return m_elements; }
 
+// TODO: make a typed wrapper around this so, for example, lambda knows that
+// the entity it holds is a Lambda::Parameter.
 struct EntityId {
   bool operator==(EntityId const &) const = default;
-  std::size_t id;
+  std::size_t value;
 };
 
 struct Label {
@@ -168,10 +167,9 @@ struct EntityReference {
 
 using ExprBase = std::variant<Number, Call, Case, LabelCall, Lambda, TVLambda, EntityReference>;
 struct Expr;
-using ExprPtr = std::unique_ptr<Expr>;
 
 struct Call {
-  ExprPtr callee;
+  std::unique_ptr<Expr> callee;
   std::vector<Expr> arguments;
 };
 
@@ -181,27 +179,29 @@ struct Case {
     std::optional<EntityId> variable;
   };
 
-  struct Arm;
+  struct Alternative;
 
-  ExprPtr scrutinee;
-  std::vector<Arm> alternatives;
+  std::unique_ptr<Expr> scrutinee;
+  std::vector<Alternative> alternatives;
 };
 
 struct LabelCall {
   // TODO: feel free to rename it now to label_id
   LabelId callee;
   TypeId type;
-  std::optional<ExprPtr> argument;
+  std::optional<std::unique_ptr<Expr>> argument;
 };
 
 struct Lambda {
+  // TODO: Perhaps this and the binding for a pattern can be the same type?
   struct Parameter {
     std::string name;
     std::optional<TypeId> type;
   };
 
+  std::vector<EntityId> captures;
   EntityId parameter;
-  ExprPtr body;
+  std::unique_ptr<Expr> body;
 };
 
 struct TVLambda {
@@ -211,14 +211,14 @@ struct TVLambda {
 
   EntityId parameter;
   std::optional<Kind> parameter_kind;
-  ExprPtr body;
+  std::unique_ptr<Expr> body;
 };
 
 struct Expr : ExprBase {
   using ExprBase::variant;
 };
 
-struct Case::Arm {
+struct Case::Alternative {
   Pattern pattern;
   Expr arm;
 };
@@ -283,6 +283,7 @@ struct ModuleDefinition {
   std::vector<EntityId> entities;
 };
 
+// TODO: rename to PatternValueDefinition
 struct PatternBinding {
   std::string name;
 };
@@ -293,12 +294,20 @@ using EntityBase = std::variant<ValueDefinition, TypeFormDefinition, ValueDeclar
                                 TVLambda::Parameter, TTLambda::Parameter, PatternBinding>;
 struct Entity : EntityBase {
   using EntityBase::variant;
+
+  std::string &name() {
+    return std::visit([](auto &e) -> std::string & { return e.name; }, *this);
+  }
+
+  std::string const &name() const {
+    return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
+  }
 };
 
 } // namespace ast
 
 template <> struct std::hash<ast::EntityId> {
-  static std::size_t operator()(ast::EntityId const &eid) { return eid.id; }
+  static std::size_t operator()(ast::EntityId const &eid) { return eid.value; }
 };
 
 #endif

@@ -3,19 +3,23 @@
 
 #include <cstddef>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace vm {
 
 struct Byte {
-  explicit Byte(std::size_t value) : m_value(value) {}
+  using underlying = std::size_t;
 
-  std::size_t value() const { return m_value; }
+  explicit Byte(underlying value) : m_value(value) {}
+
+  underlying value() const { return m_value; }
 
 private:
-  std::size_t m_value;
+  underlying m_value;
 };
 
 /// @brief Represents an index of an instruction inside bytecode.
@@ -29,7 +33,7 @@ private:
   Byte m_value;
 };
 
-enum class Mnemonic {
+enum class Mnemonic : unsigned char {
   // Stack manipulation
   push,
   pushi,
@@ -39,106 +43,92 @@ enum class Mnemonic {
 
   // Subroutines
   call,
+  callind,
   ret,
+  jmp,
+
+  // Arrays
+  mka,
+  seta,
+  geta,
 
   // Variants
   mkv,
   jmpvd,
-
-  // Arrays
-  mka,
-  geta,
 };
 
-inline std::string to_string(Mnemonic m) {
-  switch (m) {
-  case Mnemonic::push:
-    return "push";
-  case Mnemonic::pushi:
-    return "pushi";
-  case Mnemonic::pushs:
-    return "pushs";
-  case Mnemonic::seti:
-    return "seti";
-  case Mnemonic::pop:
-    return "pop";
-  case Mnemonic::call:
-    return "call";
-  case Mnemonic::ret:
-    return "ret";
-  case Mnemonic::mkv:
-    return "mkv";
-  case Mnemonic::jmpvd:
-    return "jmpvd";
-  case Mnemonic::mka:
-    return "mka";
-  case Mnemonic::geta:
-    return "geta";
-  }
-  return "unknown";
-}
+namespace info {
 
-inline std::optional<Mnemonic> mnemonic_from_string(std::string_view s) {
-  if (s == "push") {
-    return Mnemonic::push;
-  } else if (s == "pushi") {
-    return Mnemonic::pushi;
-  } else if (s == "pushs") {
-    return Mnemonic::pushs;
-  } else if (s == "seti") {
-    return Mnemonic::seti;
-  } else if (s == "pop") {
-    return Mnemonic::pop;
-  } else if (s == "call") {
-    return Mnemonic::call;
-  } else if (s == "ret") {
-    return Mnemonic::ret;
-  } else if (s == "mkv") {
-    return Mnemonic::mkv;
-  } else if (s == "jmpvd") {
-    return Mnemonic::jmpvd;
-  } else if (s == "mka") {
-    return Mnemonic::mka;
-  } else if (s == "geta") {
-    return Mnemonic::geta;
-  } else {
-    return std::nullopt;
-  }
-}
-
-enum class OperandType {
+enum class OperandType : unsigned char {
   none,
   number,
   label,
+  table,
 };
 
-inline OperandType mnemonic_operand_type(Mnemonic m) {
-  switch (m) {
-  case Mnemonic::push:
-    return OperandType::number;
-  case Mnemonic::pushi:
-    return OperandType::number;
-  case Mnemonic::pushs:
-    return OperandType::label;
-  case Mnemonic::seti:
-    return OperandType::number;
-  case Mnemonic::pop:
-    return OperandType::none;
-  case Mnemonic::call:
-    return OperandType::label;
-  case Mnemonic::ret:
-    return OperandType::none;
-  case Mnemonic::mkv:
-    return OperandType::none;
-  case Mnemonic::jmpvd:
-    return OperandType::none;
-  case Mnemonic::mka:
-    return OperandType::none;
-  case Mnemonic::geta:
-    return OperandType::none;
-  }
+struct MnemonicInfo {
+  Mnemonic mnemonic;
+  OperandType operand_type;
+  char const *display_name;
+  unsigned char pop_cnt, push_cnt;
+};
 
-  std::unreachable();
+using enum Mnemonic;
+using enum OperandType;
+
+// Syntax: operand? | popped_values... -> pushed_values...
+constexpr MnemonicInfo mnemonic_info[] = {
+    // value | -> value
+    {push, number, "push", 0, 1},
+    // index | -> stack[index]
+    {pushi, number, "pushi", 0, 1},
+    // label | -> label_reference
+    {pushs, label, "pushs", 0, 1},
+    // index | value ->
+    {seti, number, "seti", 1, 0},
+    // | value ->
+    {pop, none, "pop", 1, 0},
+    // label | ->
+    {call, label, "call", 0, 0},
+    // | callable ->
+    {callind, none, "callind", 1, 0},
+    // | ->
+    {ret, none, "ret", 0, 0},
+    // label | ->
+    {jmp, label, "jmp", 0, 0},
+    // | size -> array_ref
+    {mka, none, "mka", 1, 1},
+    // | array_ref index value ->
+    {seta, none, "seta", 3, 0},
+    // | array_ref index -> value
+    {geta, none, "geta", 2, 1},
+    // | value discriminator -> variant_ref
+    {mkv, none, "mkv", 2, 1},
+    // table | variant_ref -> variant_value
+    {jmpvd, table, "jmpvd", 1, 1},
+};
+
+} // namespace info
+
+constexpr std::string mnemonic_to_string(Mnemonic m) {
+  return info::mnemonic_info[std::to_underlying(m)].display_name;
+}
+
+constexpr std::optional<Mnemonic> mnemonic_from_string(std::string_view s) {
+  auto it = std::ranges::find(info::mnemonic_info, s, [](auto &info) { return info.display_name; });
+  if (it == std::ranges::end(info::mnemonic_info)) {
+    return std::nullopt;
+  }
+  return it->mnemonic;
+}
+
+constexpr info::OperandType mnemonic_operand_type(Mnemonic m) {
+  return info::mnemonic_info[std::to_underlying(m)].operand_type;
+}
+
+constexpr int mnemonic_stack_delta(Mnemonic m) {
+  auto &mi = info::mnemonic_info[std::to_underlying(m)];
+  return mi.push_cnt - mi.pop_cnt;
 }
 
 struct Instruction {

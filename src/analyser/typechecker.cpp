@@ -21,6 +21,7 @@ namespace {
 
 struct Env {
   std::unordered_map<ast::Expr const *, ast::TypeId> type_of;
+  // TODO: this is really not needed though.
   std::unordered_map<ast::EntityId, ast::TypeId> type_of_entity;
 };
 
@@ -32,7 +33,7 @@ struct Context {
   std::string tip(ast::TypeId t) {
     if (auto a = std::get_if<ast::TypeReference>(&ts.read(t))) {
       auto name = std::visit([](auto &entity) { return static_cast<std::string>(entity.name); },
-                             entities[a->definition.id]);
+                             entities[a->definition.value]);
       return name;
     } else if (auto b = std::get_if<ast::TypeArrow>(&ts.read(t))) {
       return "(" + tip(b->from) + ") -> (" + tip(b->to) + ")";
@@ -42,7 +43,7 @@ struct Context {
 
   std::string ime(ast::EntityId e) {
     return std::visit([](auto &entity) { return static_cast<std::string>(entity.name); },
-                      entities[e.id]);
+                      entities[e.value]);
   }
 };
 
@@ -224,7 +225,7 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
     return entity_type;
   }
 
-  auto type = std::visit(Visitor{ctx}, ctx.entities[entity_id.id]);
+  auto type = std::visit(Visitor{ctx}, ctx.entities[entity_id.value]);
   if (not type) {
     todo();
   }
@@ -239,7 +240,7 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
 
 } // namespace
 
-std::expected<void, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
+std::expected<storage::TypeEnv, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
   Context ctx{*ast.ts, ast.entities, {}};
   for (std::size_t i = 0; i < ast.entities.size(); ++i) {
     auto res = get_entity_type(ctx, ast::EntityId{i});
@@ -249,8 +250,7 @@ std::expected<void, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
     std::cout << ctx.ime(ast::EntityId{i}) << " : " << ctx.tip(*res) << '\n';
   }
 
-  todo();
-  return {};
+  return storage::TypeEnv{ctx.env.type_of};
 }
 
 } // namespace analyser

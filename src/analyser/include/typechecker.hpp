@@ -12,7 +12,7 @@ struct Error {
   friend std::ostream &operator<<(std::ostream &os, Error) { return os; }
 };
 
-std::expected<void, Error> typecheck(storage::ResolvedAST const &ast) noexcept;
+std::expected<storage::TypeEnv, Error> typecheck(storage::ResolvedAST const &ast) noexcept;
 
 } // namespace analyser
 

@@ -234,8 +234,8 @@ int main(int argc, char *argv[]) {
 
     auto next_ip = step(m, dec, ip);
     if (not next_ip) {
-      std::cout << "[Error] at \"" << to_string(dec.opcode(ip)) << "\": " << next_ip.error()
-                << '\n';
+      std::cout << "[Error] at \"" << vm::mnemonic_to_string(dec.opcode(ip))
+                << "\": " << next_ip.error() << '\n';
       return EXIT_FAILURE;
     }
     ip = *next_ip;

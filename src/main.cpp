@@ -47,9 +47,9 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  auto result = analyser::typecheck(*ast);
-  if (not result) {
-    std::cerr << result.error() << '\n';
+  auto type_env = analyser::typecheck(*ast);
+  if (not type_env) {
+    std::cerr << type_env.error() << '\n';
     return EXIT_FAILURE;
   }
 }
