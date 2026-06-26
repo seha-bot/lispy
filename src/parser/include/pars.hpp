@@ -233,15 +233,12 @@ template <typename T, std::size_t N> Parser<T> any(std::array<Parser<T>, N> pars
   }};
 }
 
-// TODO:
-// struct Tag {
-//   template <typename T, std::size_t N> Parser<T> operator=(std::array<Parser<T>, N> parsers) {
-//     return any(std::move(parsers));
-//   }
-// };
-// #define NEW_ANY Tag{} =
-
-#define ANY(...) any(std::array __VA_ARGS__)
+struct AnyTag {
+  template <typename T, std::size_t N> Parser<T> operator=(std::array<Parser<T>, N> parsers) {
+    return any(std::move(parsers));
+  }
+};
+#define ANY AnyTag{} = std::array
 
 template <typename T> Parser<std::vector<T>> many(Parser<T> parser) {
   return {[parser = std::move(parser)](Input exprs) mutable -> ParseResult<std::vector<T>> {
@@ -278,14 +275,14 @@ inline Parser<std::string> atom_starting_with(char c) {
 }
 
 template <typename T> Parser<std::optional<T>> optional(Parser<T> parser) {
-  return ANY({
+  return ANY{
       std::move(parser) | to<std::optional<T>>,
       pure(std::optional<T>()),
-  });
+  };
 }
 
 template <typename T, typename... Ts> Parser<T> unify(std::tuple<Ts...> parsers) {
-  return ANY({(std::move(std::get<Ts>(parsers)) | to<T>)...});
+  return ANY{(std::move(std::get<Ts>(parsers)) | to<T>)...};
 }
 
 #define UNIFY_IMPL(...) (std::tuple __VA_ARGS__)

@@ -44,24 +44,24 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
       return ctx.es.get_label(std::move(name));
     };
 
-    auto element_parser = ANY({
+    auto element_parser = ANY{
         seq(to<ast::TypeVariant::Element>, atom() | to_label, pure(std::optional<ast::TypeId>())),
         list(seq(to<ast::TypeVariant::Element>, atom() | to_label, rec_type_parser())),
-    });
+    };
 
     return many(std::move(element_parser)) | to<ast::TypeVariant> | store;
   }();
 
   auto to_parser = seq(to<ast::TypeArrow>, rec_type_parser(), rec_type_parser()) | store;
 
-  return ANY({
+  return ANY{
       atom_where(name_defined) | lookup | store,
-      list(ANY({
+      list(ANY{
           atom_exact("tuple") > std::move(tuple_parser),
           atom_exact("variant") > std::move(variant_parser),
           atom_exact("to") > std::move(to_parser),
-      })),
-  });
+      }),
+  };
 }
 
 Parser<ast::Case::Alternative> case_arm_parser(Context ctx) noexcept {
@@ -83,10 +83,10 @@ Parser<ast::Case::Alternative> case_arm_parser(Context ctx) noexcept {
            [pat](ast::Expr expr) { return ast::Case::Alternative(pat, std::move(expr)); };
   };
 
-  return ANY({
+  return ANY{
       seq(to<ast::Case::Alternative>, atom_starting_with(':') | atom_pat, expr_parser(ctx)),
       list(seq(list_pat, atom_starting_with(':'), atom())) >> list_arm,
-  });
+  };
 }
 
 Parser<ast::Expr> special_parser(Context ctx) noexcept {
@@ -96,10 +96,10 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
       return std::make_pair(ctx.with_names({{std::move(name), binding_id}}), binding_id);
     };
 
-    auto raw_parameter_parser = ANY({
+    auto raw_parameter_parser = ANY{
         atom() | [=](std::string name) { return to_parameter(std::move(name), std::nullopt); },
         list(seq(to_parameter, atom(), optional(type_parser(ctx)))),
-    });
+    };
 
     return std::move(raw_parameter_parser) >> [](std::pair<Context, ast::EntityId> p) {
       auto [new_ctx, parameter_id] = p;
@@ -159,14 +159,14 @@ Parser<ast::Expr> expr_parser(Context ctx) noexcept {
     };
   };
 
-  return ANY({
+  return ANY{
       name_lookup(),
-      list(ANY({
+      list(ANY{
           name_lookup() >> call_parser,
           special_parser(ctx),
           list(rec([ctx] { return expr_parser(ctx); })) >> call_parser,
-      })),
-  });
+      }),
+  };
 }
 
 Parser<ast::ShallowEntity> module_entity_parser() noexcept {
