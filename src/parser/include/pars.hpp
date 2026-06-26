@@ -233,6 +233,14 @@ template <typename T, std::size_t N> Parser<T> any(std::array<Parser<T>, N> pars
   }};
 }
 
+// TODO:
+// struct Tag {
+//   template <typename T, std::size_t N> Parser<T> operator=(std::array<Parser<T>, N> parsers) {
+//     return any(std::move(parsers));
+//   }
+// };
+// #define NEW_ANY Tag{} =
+
 #define ANY(...) any(std::array __VA_ARGS__)
 
 template <typename T> Parser<std::vector<T>> many(Parser<T> parser) {

@@ -14,6 +14,7 @@ target_link_libraries(lispy_core INTERFACE compiler_flags)
 
 add_subdirectory(parser)
 add_subdirectory(analyser)
+# add_subdirectory(compiler)
 add_subdirectory(assembler)
 add_subdirectory(vm)
 
@@ -26,5 +27,5 @@ target_link_libraries(lispy PRIVATE
   PkgConfig::Readline
   parser
   analyser
-  compiler
+  # compiler
 )

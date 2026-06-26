@@ -30,7 +30,7 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
     // if (not type_entity) {
     //     todo();
     // }
-    return ast::TypeReference{*type_entity_id};
+    return ast::NamedType{*type_entity_id};
   };
 
   auto store = [ctx](ast::Type type) { return ctx.ts.store(std::move(type)); };
@@ -44,14 +44,12 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
       return ctx.es.get_label(std::move(name));
     };
 
-    using Arm = std::pair<ast::LabelId, std::optional<ast::TypeId>>;
-
-    auto arm_parser = ANY({
-        seq(to<Arm>, atom() | to_label, pure(std::optional<ast::TypeId>())),
-        list(seq(to<Arm>, atom() | to_label, rec_type_parser())),
+    auto element_parser = ANY({
+        seq(to<ast::TypeVariant::Element>, atom() | to_label, pure(std::optional<ast::TypeId>())),
+        list(seq(to<ast::TypeVariant::Element>, atom() | to_label, rec_type_parser())),
     });
 
-    return many(std::move(arm_parser)) | to<ast::TypeVariant> | store;
+    return many(std::move(element_parser)) | to<ast::TypeVariant> | store;
   }();
 
   auto to_parser = seq(to<ast::TypeArrow>, rec_type_parser(), rec_type_parser()) | store;
@@ -72,11 +70,11 @@ Parser<ast::Case::Alternative> case_arm_parser(Context ctx) noexcept {
     return ast::Case::Pattern(label_id, std::nullopt);
   };
 
-  auto list_pat = [ctx](std::string name, std::string variable) {
+  auto list_pat = [ctx](std::string name, std::string binding_name) {
     auto label_id = ctx.es.get_label(std::move(name));
-    auto variable_id = ctx.es.reserve_store(ast::PatternBinding(variable));
-    auto new_ctx = ctx.with_names({{std::move(variable), variable_id}});
-    return std::make_pair(new_ctx, ast::Case::Pattern(label_id, variable_id));
+    auto binding_id = ctx.es.reserve_store(ast::Binding{binding_name, std::nullopt});
+    auto new_ctx = ctx.with_names({{std::move(binding_name), binding_id}});
+    return std::make_pair(new_ctx, ast::Case::Pattern(label_id, binding_id));
   };
 
   auto list_arm = [](std::pair<Context, ast::Case::Pattern> p) -> Parser<ast::Case::Alternative> {
@@ -94,8 +92,8 @@ Parser<ast::Case::Alternative> case_arm_parser(Context ctx) noexcept {
 Parser<ast::Expr> special_parser(Context ctx) noexcept {
   auto lambda_parser = [ctx](std::string const &) -> Parser<ast::Lambda> {
     auto to_parameter = [ctx](std::string name, std::optional<ast::TypeId> type) {
-      auto parameter_id = ctx.es.reserve_store(ast::Lambda::Parameter{name, type});
-      return std::make_pair(ctx.with_names({{std::move(name), parameter_id}}), parameter_id);
+      auto binding_id = ctx.es.reserve_store(ast::Binding{name, type});
+      return std::make_pair(ctx.with_names({{std::move(name), binding_id}}), binding_id);
     };
 
     auto raw_parameter_parser = ANY({
@@ -122,12 +120,12 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
     return seq(construct_case, expr_parser(ctx), many(case_arm_parser(ctx)));
   };
 
-  auto label_parser = [ctx](std::string name) -> Parser<ast::LabelCall> {
+  auto label_parser = [ctx](std::string name) -> Parser<ast::Constructor> {
     auto label = ctx.es.get_label(std::move(name));
 
     auto construct_label = [label](ast::TypeId type, std::optional<ast::Expr> argument) {
       auto allocate = [](ast::Expr expr) { return std::make_unique<ast::Expr>(std::move(expr)); };
-      return ast::LabelCall{label, type, std::move(argument).transform(allocate)};
+      return ast::Constructor{label, type, std::move(argument).transform(allocate)};
     };
 
     return seq(construct_label, type_parser(ctx), optional(expr_parser(ctx)));

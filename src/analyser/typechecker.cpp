@@ -31,7 +31,7 @@ struct Context {
   Env env;
 
   std::string tip(ast::TypeId t) {
-    if (auto a = std::get_if<ast::TypeReference>(&ts.read(t))) {
+    if (auto a = std::get_if<ast::NamedType>(&ts.read(t))) {
       auto name = std::visit([](auto &entity) { return static_cast<std::string>(entity.name); },
                              entities[a->definition.value]);
       return name;
@@ -113,7 +113,7 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
 
       std::optional<ast::TypeId> common_arm_type;
       for (auto &[pattern, arm] : case_.alternatives) {
-        // FIX: pattern variable should be checked against the declared type.
+        // FIX: pattern binding should be checked against the declared type.
         pattern;
 
         auto arm_type = get_type(ctx, arm);
@@ -136,7 +136,7 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
       }
       return *common_arm_type;
     }
-    std::expected<ast::TypeId, Error> operator()(ast::LabelCall const &lcall) {
+    std::expected<ast::TypeId, Error> operator()(ast::Constructor const &lcall) {
       // TODO: this will not evaluate the argument.
       return lcall.type;
     }
@@ -155,7 +155,6 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
       // Make an unchecked version.
       return ctx.ts.store(ast::TypeArrow{*parameter_type, *body_type});
     }
-    std::expected<ast::TypeId, Error> operator()(ast::TVLambda const &) { todo(); }
     std::expected<ast::TypeId, Error> operator()(ast::EntityReference const &entity_ref) {
       return get_entity_type(ctx, entity_ref.id);
     }
@@ -204,16 +203,11 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
       return *type;
     }
     std::expected<ast::TypeId, Error> operator()(ast::ModuleDefinition const &) { todo(); }
-    std::expected<ast::TypeId, Error> operator()(ast::Lambda::Parameter const &param) {
-      if (not param.type) {
+    std::expected<ast::TypeId, Error> operator()(ast::Binding const &binding) {
+      if (not binding.type) {
         return ctx.ts.make_variable();
       }
-      return *param.type;
-    }
-    std::expected<ast::TypeId, Error> operator()(ast::TVLambda::Parameter const &) { todo(); }
-    std::expected<ast::TypeId, Error> operator()(ast::TTLambda::Parameter const &) { todo(); }
-    std::expected<ast::TypeId, Error> operator()(ast::PatternBinding const &) {
-      return ctx.ts.make_variable();
+      return *binding.type;
     }
 
     Context &ctx;

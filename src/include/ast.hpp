@@ -100,26 +100,9 @@ private:
   storage::RepresentativeSets *m_rep;
 };
 
-struct Kind {
-  bool operator==(Kind const &) const = default;
-  std::optional<std::pair<std::shared_ptr<Kind>, std::shared_ptr<Kind>>> arrow;
-};
-
-// TODO: this is more of a "NamedType"
-struct TypeReference {
-  bool operator==(TypeReference const &) const = default;
+struct NamedType {
+  bool operator==(NamedType const &) const = default;
   EntityId definition;
-};
-
-struct TTLambda {
-  bool operator==(TTLambda const &) const = default;
-  struct Parameter {
-    std::string name;
-  };
-
-  EntityId parameter;
-  std::optional<Kind> parameter_kind;
-  TypeId body;
 };
 
 struct TypeArrow {
@@ -129,8 +112,15 @@ struct TypeArrow {
 };
 
 struct TypeVariant {
+  struct Element {
+    bool operator==(Element const &) const = default;
+    LabelId tag;
+    // If type is std::nullopt, then this is treated as if it is a type which contains one value.
+    std::optional<TypeId> type;
+  };
+
   bool operator==(TypeVariant const &) const = default;
-  std::vector<std::pair<LabelId, std::optional<TypeId>>> elements;
+  std::vector<Element> elements;
 };
 
 struct TypeTuple {
@@ -149,23 +139,22 @@ struct TypeVariable {
   std::size_t id;
 };
 
-using TypeBase = std::variant<TypeReference, TTLambda, TypeArrow, TypeVariant, TypeTuple,
-                              TypeApplication, TypeVariable>;
+using TypeBase =
+    std::variant<NamedType, TypeArrow, TypeVariant, TypeTuple, TypeApplication, TypeVariable>;
 struct Type : TypeBase {
   using TypeBase::variant;
 };
 
 struct Call;
 struct Case;
-struct LabelCall;
+struct Constructor;
 struct Lambda;
-struct TVLambda;
 
 struct EntityReference {
   EntityId id;
 };
 
-using ExprBase = std::variant<Number, Call, Case, LabelCall, Lambda, TVLambda, EntityReference>;
+using ExprBase = std::variant<Number, Call, Case, Constructor, Lambda, EntityReference>;
 struct Expr;
 
 struct Call {
@@ -175,8 +164,8 @@ struct Call {
 
 struct Case {
   struct Pattern {
-    LabelId name;
-    std::optional<EntityId> variable;
+    LabelId tag;
+    std::optional<EntityId> binding;
   };
 
   struct Alternative;
@@ -185,32 +174,20 @@ struct Case {
   std::vector<Alternative> alternatives;
 };
 
-struct LabelCall {
-  // TODO: feel free to rename it now to label_id
-  LabelId callee;
+struct Constructor {
+  LabelId tag;
   TypeId type;
   std::optional<std::unique_ptr<Expr>> argument;
 };
 
-struct Lambda {
-  // TODO: Perhaps this and the binding for a pattern can be the same type?
-  struct Parameter {
-    std::string name;
-    std::optional<TypeId> type;
-  };
-
-  std::vector<EntityId> captures;
-  EntityId parameter;
-  std::unique_ptr<Expr> body;
+struct Binding {
+  std::string name;
+  std::optional<TypeId> type;
 };
 
-struct TVLambda {
-  struct Parameter {
-    std::string name;
-  };
-
+struct Lambda {
+  std::vector<EntityId> captures;
   EntityId parameter;
-  std::optional<Kind> parameter_kind;
   std::unique_ptr<Expr> body;
 };
 
@@ -283,15 +260,9 @@ struct ModuleDefinition {
   std::vector<EntityId> entities;
 };
 
-// TODO: rename to PatternValueDefinition
-struct PatternBinding {
-  std::string name;
-};
-
 // Entities have names.
 using EntityBase = std::variant<ValueDefinition, TypeFormDefinition, ValueDeclaration,
-                                MergedValueDefinition, ModuleDefinition, Lambda::Parameter,
-                                TVLambda::Parameter, TTLambda::Parameter, PatternBinding>;
+                                MergedValueDefinition, ModuleDefinition, Binding>;
 struct Entity : EntityBase {
   using EntityBase::variant;
 

@@ -61,9 +61,9 @@ struct EntityStorage {
     return std::get_if<ast::TypeFormDefinition>(&*entity_opt);
   }
 
-  bool is_lambda_parameter(ast::EntityId id) const {
+  bool is_binding(ast::EntityId id) const {
     auto &entity = m_entities.at(id.value);
-    return entity and std::holds_alternative<ast::Lambda::Parameter>(*entity);
+    return entity and std::holds_alternative<ast::Binding>(*entity);
   }
 
 private:

@@ -22,7 +22,7 @@ struct Scope {
   }
 
   static void capture(storage::EntityStorage const &es, Scope *scope, ast::EntityId entity_id) {
-    if (not es.is_lambda_parameter(entity_id)) {
+    if (not es.is_binding(entity_id)) {
       return;
     }
 

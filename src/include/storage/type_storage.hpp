@@ -72,21 +72,22 @@ struct TypeStorage {
 
   ast::Type const &read(ast::TypeId id) const { return m_types[m_rep.representative(id).m_id]; }
 
-  std::vector<std::pair<ast::LabelId, std::optional<ast::TypeId>>> const &
-  get_variants(std::vector<ast::Entity> const &entities, ast::TypeId id) const {
-    if (auto *variant = std::get_if<ast::TypeVariant>(&read(id))) {
-      return variant->elements;
-    }
-    if (auto *type = std::get_if<ast::TypeReference>(&read(id))) {
-      auto &ent = entities[type->definition.value];
-      if (auto *def = std::get_if<ast::TypeFormDefinition>(&ent)) {
-        return get_variants(entities, def->type);
-      } else {
-        todo();
-      }
-    }
-    todo();
-  }
+  // TODO: remove if unused.
+  // std::vector<ast::TypeVariant::Element> const &
+  // get_variant_elements(std::vector<ast::Entity> const &entities, ast::TypeId id) const {
+  //   if (auto *variant = std::get_if<ast::TypeVariant>(&read(id))) {
+  //     return variant->elements;
+  //   }
+  //   if (auto *type = std::get_if<ast::NamedType>(&read(id))) {
+  //     auto &ent = entities[type->definition.value];
+  //     if (auto *def = std::get_if<ast::TypeFormDefinition>(&ent)) {
+  //       return get_variant_elements(entities, def->type);
+  //     } else {
+  //       todo();
+  //     }
+  //   }
+  //   todo();
+  // }
 
   bool merge(ast::TypeId a_id, ast::TypeId b_id) {
     // TODO: calling read more times than needed.
