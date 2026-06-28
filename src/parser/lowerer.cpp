@@ -23,9 +23,6 @@ namespace {
 
 // vacant is a cool word
 
-std::expected<ast::Entity, Error> lower_shallow_entity(Context ctx,
-                                                       ast::ShallowEntity entity) noexcept;
-
 namespace shallow {
 
 std::expected<ast::ValueDefinition, Error> lower_entity(Context const &ctx,
@@ -75,69 +72,59 @@ lower_entity(Context const &ctx,
                                     *std::move(type_signature), *std::move(expr)};
 }
 
-std::expected<ast::ModuleDefinition, Error> lower_entity(Context ctx,
-                                                         ast::ShallowModuleDefinition module) {
-  std::vector<ast::ShallowEntity> shallow_entities;
-  std::unordered_map<std::string, ast::EntityId> scope_entities;
-  std::vector<ast::EntityId> module_entities;
+std::expected<ast::ModuleDefinition, Error>
+lower_entity(Context ctx, ast::ShallowModuleDefinition shallow_module) {
+  auto shallow_entities_result =
+      parse(raw::shallow_entities_parser(), std::move(shallow_module.raw_entities));
+  if (not shallow_entities_result) {
+    todo();
+  }
 
-  for (auto &raw_entity : module.raw_entities.elements()) {
-    auto shallow_entity = parse(raw::module_entity_parser(), std::move(raw_entity));
-    if (not shallow_entity) {
-      todo();
-    }
+  auto &shallow_entities = *shallow_entities_result;
+  std::unordered_map<std::string, std::pair<std::size_t, ast::EntityId>> entity_ids;
 
-    auto name = std::visit([](auto &entity) { return static_cast<std::string>(entity.name); },
-                           *shallow_entity);
-
-    if (scope_entities.contains(name)) {
-      auto id = scope_entities.at(name);
-      auto i = static_cast<std::size_t>(std::ranges::find(module_entities, id) -
-                                        module_entities.begin());
-      auto *decl = std::get_if<ast::ShallowValueDeclaration>(&shallow_entities.at(i));
-      auto *def = std::get_if<ast::ShallowValueDefinition>(&*shallow_entity);
-      if (decl and def) {
-        shallow_entities.at(i) = ast::ShallowMergedValueDefinition{
-            std::move(decl->name), std::move(decl->raw_type_signature), std::move(def->raw_value)};
+  for (std::size_t i = 0; i < shallow_entities.size(); ++i) {
+    auto &shallow_entity = shallow_entities[i];
+    auto &name = shallow_entity.name();
+    if (auto it = entity_ids.find(name); it != entity_ids.end()) {
+      auto [j, _] = it->second;
+      auto *declaration = std::get_if<ast::ShallowValueDeclaration>(&shallow_entities[j]);
+      auto *definition = std::get_if<ast::ShallowValueDefinition>(&shallow_entity);
+      if (declaration and definition) {
+        shallow_entities[j] = ast::ShallowMergedValueDefinition{
+            std::move(declaration->name),
+            declaration->raw_type_signature,
+            definition->raw_value,
+        };
       } else {
         todo();
       }
     } else {
-      shallow_entities.push_back(std::move(*shallow_entity));
-      auto id = ctx.es.reserve();
-      scope_entities.insert({std::move(name), id});
-      module_entities.push_back(id);
+      entity_ids.insert({name, {i, ctx.es.reserve()}});
     }
   }
 
-  auto module_ctx = ctx.with_names(std::move(scope_entities));
-
-  // TODO: reserve
-  for (std::size_t i = 0; i < shallow_entities.size(); ++i) {
-    auto res = lower_shallow_entity(module_ctx, std::move(shallow_entities[i]));
-    if (not res) {
-      return std::unexpected(res.error());
-    }
-    ctx.es.store(module_entities[i], *std::move(res));
+  for (auto &[_, index_and_entity_id] : entity_ids) {
+    auto [i, id] = index_and_entity_id;
+    auto visitor = [ctx, id](auto shallow_entity) {
+      auto result = shallow::lower_entity(ctx, std::move(shallow_entity));
+      if (not result) {
+        todo();
+      }
+      ctx.es.store(id, *std::move(result));
+    };
+    std::visit(visitor, std::move(shallow_entities[i]));
   }
 
-  return ast::ModuleDefinition{std::move(module.name), std::move(module_entities)};
+  std::vector<ast::EntityId> result;
+  result.reserve(entity_ids.size());
+  for (auto &[_, index_and_entity_id] : entity_ids) {
+    result.push_back(index_and_entity_id.second);
+  }
+  return ast::ModuleDefinition{std::move(shallow_module.name), result};
 }
 
 } // namespace shallow
-
-std::expected<ast::Entity, Error> lower_shallow_entity(Context ctx,
-                                                       ast::ShallowEntity entity) noexcept {
-  return std::visit(
-      [ctx](auto unwrapped_entity) -> std::expected<ast::Entity, Error> {
-        auto res = shallow::lower_entity(ctx, std::move(unwrapped_entity));
-        if (not res) {
-          return std::unexpected(res.error());
-        }
-        return *std::move(res);
-      },
-      std::move(entity));
-}
 
 } // namespace
 
@@ -145,14 +132,13 @@ std::expected<storage::ResolvedAST, Error> lower_ast(std::string filename,
                                                      std::vector<ast::RawExpr> ast) noexcept {
   auto ts = std::make_unique<storage::TypeStorage>();
   storage::EntityStorage storage;
-  auto shallow_module =
-      ast::ShallowModuleDefinition{std::move(filename), ast::List(std::move(ast), ast::Source{})};
-  auto module = shallow::lower_entity(Context(*ts, storage), std::move(shallow_module));
-  if (not module) {
+  auto module_definition = shallow::lower_entity(
+      Context(*ts, storage),
+      ast::ShallowModuleDefinition{filename, ast::List(std::move(ast), ast::Source{})});
+  if (not module_definition) {
     todo();
   }
-
-  return storage::ResolvedAST{*std::move(module), std::move(ts), storage.produce()};
+  return storage::ResolvedAST{*std::move(module_definition), std::move(ts), storage.produce()};
 }
 
 } // namespace parser

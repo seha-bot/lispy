@@ -223,7 +223,7 @@ struct ShallowValueDeclaration {
 
 struct ShallowModuleDefinition {
   std::string name;
-  List raw_entities;
+  RawExpr raw_entities;
 };
 
 // Shallow entites are partially-compiled entities.
@@ -232,6 +232,10 @@ using ShallowEntityBase =
                  ShallowValueDeclaration, ShallowModuleDefinition>;
 struct ShallowEntity : ShallowEntityBase {
   using ShallowEntityBase::variant;
+
+  std::string const &name() const {
+    return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
+  }
 };
 
 struct ValueDefinition {

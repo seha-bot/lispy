@@ -169,17 +169,25 @@ Parser<ast::Expr> expr_parser(Context ctx) noexcept {
   };
 }
 
-Parser<ast::ShallowEntity> module_entity_parser() noexcept {
-  auto construct_module = [](std::string name, ast::RawExpr body) -> ast::ShallowEntity {
-    return ast::ShallowModuleDefinition{std::move(name), std::get<ast::List>(std::move(body))};
-  };
+namespace {
 
-  return list(UNIFY(ast::ShallowEntity)({
-      atom_exact("def") > seq(to<ast::ShallowValueDefinition>, atom(), pars::raw()),
-      atom_exact("form") > seq(to<ast::ShallowTypeFormDefinition>, atom(), pars::raw()),
-      atom_exact("dec") > seq(to<ast::ShallowValueDeclaration>, atom(), pars::raw()),
-      atom_exact("module") > seq(construct_module, atom(), pars::raw()),
-  }));
+template <typename T> Parser<T> name_and_body_parser() noexcept {
+  return seq(to<T>, atom(), pars::raw());
+}
+
+Parser<ast::ShallowEntity> shallow_entity_parser() noexcept {
+  return UNIFY(ast::ShallowEntity)({
+      atom_exact("dec") > name_and_body_parser<ast::ShallowValueDefinition>(),
+      atom_exact("def") > name_and_body_parser<ast::ShallowValueDeclaration>(),
+      atom_exact("form") > name_and_body_parser<ast::ShallowTypeFormDefinition>(),
+      atom_exact("module") > name_and_body_parser<ast::ShallowModuleDefinition>(),
+  });
+}
+
+} // namespace
+
+Parser<std::vector<ast::ShallowEntity>> shallow_entities_parser() noexcept {
+  return many(shallow_entity_parser());
 }
 
 } // namespace parser::raw
