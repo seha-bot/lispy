@@ -10,6 +10,7 @@
 #include "ast.hpp"
 #include "context.hpp"
 #include "pars.hpp"
+#include "shallow_ast.hpp"
 #include "todo.hpp"
 
 namespace parser::raw {
@@ -175,18 +176,18 @@ template <typename T> Parser<T> name_and_body_parser() noexcept {
   return seq(to<T>, atom(), pars::raw());
 }
 
-Parser<ast::ShallowEntity> shallow_entity_parser() noexcept {
-  return UNIFY(ast::ShallowEntity)({
-      atom_exact("dec") > name_and_body_parser<ast::ShallowValueDefinition>(),
-      atom_exact("def") > name_and_body_parser<ast::ShallowValueDeclaration>(),
-      atom_exact("form") > name_and_body_parser<ast::ShallowTypeFormDefinition>(),
-      atom_exact("module") > name_and_body_parser<ast::ShallowModuleDefinition>(),
+Parser<shallow_ast::ShallowEntity> shallow_entity_parser() noexcept {
+  return UNIFY(shallow_ast::ShallowEntity)({
+      atom_exact("dec") > name_and_body_parser<shallow_ast::ShallowValueDefinition>(),
+      atom_exact("def") > name_and_body_parser<shallow_ast::ShallowValueDeclaration>(),
+      atom_exact("form") > name_and_body_parser<shallow_ast::ShallowTypeFormDefinition>(),
+      atom_exact("module") > name_and_body_parser<shallow_ast::ShallowModuleDefinition>(),
   });
 }
 
 } // namespace
 
-Parser<std::vector<ast::ShallowEntity>> shallow_entities_parser() noexcept {
+Parser<std::vector<shallow_ast::ShallowEntity>> shallow_entities_parser() noexcept {
   return many(shallow_entity_parser());
 }
 

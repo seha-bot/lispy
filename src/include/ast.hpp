@@ -200,44 +200,6 @@ struct Case::Alternative {
   Expr arm;
 };
 
-struct ShallowValueDefinition {
-  std::string name;
-  RawExpr raw_value;
-};
-
-struct ShallowMergedValueDefinition {
-  std::string name;
-  RawExpr raw_type_signature;
-  RawExpr raw_value;
-};
-
-struct ShallowTypeFormDefinition {
-  std::string name;
-  RawExpr raw_type;
-};
-
-struct ShallowValueDeclaration {
-  std::string name;
-  RawExpr raw_type_signature;
-};
-
-struct ShallowModuleDefinition {
-  std::string name;
-  RawExpr raw_entities;
-};
-
-// Shallow entites are partially-compiled entities.
-using ShallowEntityBase =
-    std::variant<ShallowMergedValueDefinition, ShallowValueDefinition, ShallowTypeFormDefinition,
-                 ShallowValueDeclaration, ShallowModuleDefinition>;
-struct ShallowEntity : ShallowEntityBase {
-  using ShallowEntityBase::variant;
-
-  std::string const &name() const {
-    return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
-  }
-};
-
 struct ValueDefinition {
   std::string name;
   Expr value;
