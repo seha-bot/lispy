@@ -86,7 +86,7 @@ struct Lexer {
       push_dollar();
       return Token(*tok, TokenType::left_parenthesis);
     case ';':
-      while_([](char c) { return c != '\n'; });
+      take_while([](char c) { return c != '\n'; });
       return next_token();
     case '"':
       // TODO: add escaping and error reporting
@@ -99,15 +99,10 @@ struct Lexer {
       todo();
     default:
       if (is_text(first)) {
-        rewind(cp);
-        auto text = while_(is_text);
-        if (not text) {
-          // SAFETY: checked that the first one is_text
-          std::unreachable();
-        }
-        return Token(*text, TokenType::text);
+        auto rest = take_while(is_text);
+        return Token(rest ? tok->concat(*rest) : *tok, TokenType::text);
       } else if (is_space(first)) {
-        while_(is_space);
+        take_while(is_space);
         return next_token();
       } else {
         return std::unexpected(ParseError{ParseError::unexpected_token, tok->source_location()});
@@ -151,7 +146,7 @@ private:
     return tok;
   }
 
-  std::optional<UntypedToken> while_(bool (*pred)(char)) {
+  std::optional<UntypedToken> take_while(bool (*pred)(char)) {
     std::optional<UntypedToken> res;
     while (true) {
       auto const cp = checkpoint();
