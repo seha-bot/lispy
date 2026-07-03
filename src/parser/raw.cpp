@@ -65,7 +65,7 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
   };
 }
 
-Parser<ast::Case::Alternative> case_arm_parser(Context ctx) noexcept {
+Parser<ast::Case::Choice> case_choice_parser(Context ctx) noexcept {
   auto atom_pat = [ctx](std::string name) -> ast::Case::Pattern {
     auto label_id = ctx.es.get_label(std::move(name));
     return ast::Case::Pattern(label_id, std::nullopt);
@@ -78,14 +78,14 @@ Parser<ast::Case::Alternative> case_arm_parser(Context ctx) noexcept {
     return std::make_pair(new_ctx, ast::Case::Pattern(label_id, binding_id));
   };
 
-  auto list_arm = [](std::pair<Context, ast::Case::Pattern> p) -> Parser<ast::Case::Alternative> {
+  auto list_arm = [](std::pair<Context, ast::Case::Pattern> p) -> Parser<ast::Case::Choice> {
     auto [new_ctx, pat] = p;
     return expr_parser(new_ctx) |
-           [pat](ast::Expr expr) { return ast::Case::Alternative(pat, std::move(expr)); };
+           [pat](ast::Expr expr) { return ast::Case::Choice(pat, std::move(expr)); };
   };
 
   return ANY{
-      seq(to<ast::Case::Alternative>, atom_starting_with(':') | atom_pat, expr_parser(ctx)),
+      seq(to<ast::Case::Choice>, atom_starting_with(':') | atom_pat, expr_parser(ctx)),
       list(seq(list_pat, atom_starting_with(':'), atom())) >> list_arm,
   };
 }
@@ -113,12 +113,11 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
   };
 
   auto case_parser = [ctx](std::string const &) -> Parser<ast::Case> {
-    auto construct_case = [](ast::Expr scrutinee,
-                             std::vector<ast::Case::Alternative> alternatives) {
-      return ast::Case{std::make_unique<ast::Expr>(std::move(scrutinee)), std::move(alternatives)};
+    auto construct_case = [](ast::Expr scrutinee, std::vector<ast::Case::Choice> choices) {
+      return ast::Case{std::make_unique<ast::Expr>(std::move(scrutinee)), std::move(choices)};
     };
 
-    return seq(construct_case, expr_parser(ctx), many(case_arm_parser(ctx)));
+    return seq(construct_case, expr_parser(ctx), many(case_choice_parser(ctx)));
   };
 
   auto label_parser = [ctx](std::string name) -> Parser<ast::Constructor> {

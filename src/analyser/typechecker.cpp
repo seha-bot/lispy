@@ -112,7 +112,7 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
       }
 
       std::optional<ast::TypeId> common_arm_type;
-      for (auto &[pattern, arm] : case_.alternatives) {
+      for (auto &[pattern, arm] : case_.choices) {
         // FIX: pattern binding should be checked against the declared type.
         pattern;
 

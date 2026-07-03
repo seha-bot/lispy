@@ -168,10 +168,10 @@ struct Case {
     std::optional<EntityId> binding;
   };
 
-  struct Alternative;
+  struct Choice;
 
   std::unique_ptr<Expr> scrutinee;
-  std::vector<Alternative> alternatives;
+  std::vector<Choice> choices;
 };
 
 struct Constructor {
@@ -195,7 +195,7 @@ struct Expr : ExprBase {
   using ExprBase::variant;
 };
 
-struct Case::Alternative {
+struct Case::Choice {
   Pattern pattern;
   Expr arm;
 };
