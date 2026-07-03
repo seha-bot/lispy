@@ -81,12 +81,13 @@ private:
 };
 
 template <typename T> struct Parser {
-  Parser(std::move_only_function<ParseResult<T>(Input)> parser) : m_parser(std::move(parser)) {}
+  Parser(std::move_only_function<ParseResult<T>(Input) const> parser)
+      : m_parser(std::move(parser)) {}
 
-  ParseResult<T> run(Input expr) { return m_parser(expr); }
+  ParseResult<T> run(Input expr) const { return m_parser(expr); }
 
 private:
-  std::move_only_function<ParseResult<T>(Input)> m_parser;
+  std::move_only_function<ParseResult<T>(Input) const> m_parser;
 };
 
 template <typename T>
@@ -102,31 +103,19 @@ std::expected<T, errors::ParseError> parse(Parser<T> parser, ast::RawExpr expr) 
   return std::move(result.value());
 }
 
-template <typename T> Parser<T> try_(Parser<T> parser) {
-  return {[parser = std::move(parser)](Input exprs) mutable -> ParseResult<T> {
-    auto result = parser.run(exprs);
-    if (not result) {
-      return {result.error(), true};
-    }
-    return result;
-  }};
+template <typename Fn> auto rec(Fn fn) -> decltype(std::as_const(fn)()) {
+  return {[parser = std::move(fn)](Input exprs) { return parser().run(exprs); }};
 }
 
-template <typename Fn> auto rec(Fn parser) -> decltype(parser()) {
-  return {[=](Input exprs) { return parser().run(exprs); }};
-}
-
-template <std::move_constructible T> Parser<T> pure(T value) {
-  return {[v = std::move(value)](Input exprs) mutable {
-    return ParseResult<T>{std::move(v), std::move(exprs)};
-  }};
+template <typename T> Parser<T> pure(T value) {
+  return {[v = std::move(value)](Input exprs) { return ParseResult<T>{v, std::move(exprs)}; }};
 }
 
 template <typename T, typename U, std::invocable<T, U> Fn>
 auto seq(Fn f, Parser<T> a, Parser<U> b)
     -> Parser<decltype(f(std::declval<T>(), std::declval<U>()))> {
-  return {[f = std::move(f), a = std::move(a), b = std::move(b)](Input exprs) mutable
-              -> ParseResult<decltype(f(std::declval<T>(), std::declval<U>()))> {
+  return {[f = std::move(f), a = std::move(a), b = std::move(b)](
+              Input exprs) -> ParseResult<decltype(f(std::declval<T>(), std::declval<U>()))> {
     auto res_a = a.run(exprs);
     if (not res_a) {
       PROPAGATE(res_a);
@@ -160,7 +149,7 @@ Parser<std::string> atom_where(std::predicate<std::string_view> auto p) {
 }
 
 template <typename T> Parser<T> list(Parser<T> parser) {
-  return {[parser = std::move(parser)](Input exprs) mutable -> ParseResult<T> {
+  return {[parser = std::move(parser)](Input exprs) -> ParseResult<T> {
     if (exprs.empty()) {
       return {errors::NoExpression{}, true};
     }
@@ -195,29 +184,58 @@ inline Parser<ast::RawExpr> raw() {
 template <typename T, std::invocable<T> Fn>
 auto operator|(Parser<T> parser, Fn f) -> Parser<decltype(f(std::declval<T>()))> {
   return {[parser = std::move(parser),
-           f = std::move(f)](Input exprs) mutable -> ParseResult<decltype(f(std::declval<T>()))> {
-    auto res = parser.run(exprs);
-    if (not res) {
-      PROPAGATE(res);
+           f = std::move(f)](Input exprs) -> ParseResult<decltype(f(std::declval<T>()))> {
+    auto result = parser.run(exprs);
+    if (not result) {
+      PROPAGATE(result);
     }
-    return ParseResult{f(std::move(res.value())), res.remaining()};
+    return ParseResult{f(std::move(result.value())), result.remaining()};
   }};
 }
 
 template <typename T, std::invocable<T> Fn>
 auto operator>>(Parser<T> parser, Fn f) -> decltype(f(std::declval<T>())) {
   return {[parser = std::move(parser), f = std::move(f)](
-              Input exprs) mutable -> decltype(f(std::declval<T>()).run(std::declval<Input>())) {
-    auto res = parser.run(exprs);
-    if (not res) {
-      PROPAGATE(res);
+              Input exprs) -> decltype(f(std::declval<T>()).run(std::declval<Input>())) {
+    auto result = parser.run(exprs);
+    if (not result) {
+      PROPAGATE(result);
     }
-    return f(std::move(res.value())).run(res.remaining());
+    return f(std::move(result.value())).run(result.remaining());
+  }};
+}
+
+template <typename T, typename U> Parser<U> operator>(Parser<T> a, Parser<U> b) {
+  return {[a = std::move(a), b = std::move(b)](Input exprs) -> ParseResult<U> {
+    auto result = a.run(exprs);
+    if (not result) {
+      PROPAGATE(result);
+    }
+    return b.run(result.remaining());
+  }};
+}
+
+template <typename T> Parser<std::optional<T>> optional(Parser<T> parser) {
+  return {[parser = std::move(parser)](Input exprs) -> ParseResult<std::optional<T>> {
+    auto result = parser.run(exprs);
+    if (not result) {
+      if (result.is_soft()) {
+        return {std::nullopt, std::move(exprs)};
+      }
+      PROPAGATE(result);
+    }
+    return {std::move(result.value()), result.remaining()};
+  }};
+}
+
+template <std::move_constructible T> Parser<T> pure_once(T value) {
+  return {[v = std::make_unique<T>(std::move(value))](Input exprs) {
+    return ParseResult<T>{std::move(*v), std::move(exprs)};
   }};
 }
 
 template <typename T, std::size_t N> Parser<T> any(std::array<Parser<T>, N> parsers) {
-  return {[parsers = std::move(parsers)](Input exprs) mutable -> ParseResult<T> {
+  return {[parsers = std::move(parsers)](Input exprs) -> ParseResult<T> {
     for (auto &parser : parsers) {
       auto result = parser.run(exprs);
       if (result) {
@@ -241,7 +259,7 @@ struct AnyTag {
 #define ANY AnyTag{} = std::array
 
 template <typename T> Parser<std::vector<T>> many(Parser<T> parser) {
-  return {[parser = std::move(parser)](Input exprs) mutable -> ParseResult<std::vector<T>> {
+  return {[parser = std::move(parser)](Input exprs) -> ParseResult<std::vector<T>> {
     std::vector<T> out;
     while (not exprs.empty()) {
       auto res = parser.run(exprs);
@@ -258,10 +276,6 @@ template <typename T> Parser<std::vector<T>> many(Parser<T> parser) {
   }};
 }
 
-template <typename T, typename U> Parser<U> operator>(Parser<T> a, Parser<U> b) {
-  return std::move(a) >> [b = std::move(b)](auto &&) mutable { return std::move(b); };
-}
-
 inline Parser<std::string> atom() {
   return atom_where([](std::string_view) { return true; });
 }
@@ -272,13 +286,6 @@ inline Parser<std::string> atom_exact(std::string_view value) {
 
 inline Parser<std::string> atom_starting_with(char c) {
   return atom_where([c](std::string_view name) { return name.at(0) == c; });
-}
-
-template <typename T> Parser<std::optional<T>> optional(Parser<T> parser) {
-  return ANY{
-      std::move(parser) | to<std::optional<T>>,
-      pure(std::optional<T>()),
-  };
 }
 
 template <typename T, typename... Ts> Parser<T> unify(std::tuple<Ts...> parsers) {

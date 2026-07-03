@@ -107,8 +107,15 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
 
   for (auto &[_, index_and_entity_id] : entity_ids) {
     auto [i, id] = index_and_entity_id;
-    auto visitor = [ctx, id](auto shallow_entity) {
-      auto result = shallow::lower_entity(ctx, std::move(shallow_entity));
+    auto visitor = [&](auto shallow_entity) {
+      // TODO: Figure out a way to remove the copy here.
+      std::unordered_map<std::string, ast::EntityId> haha;
+      for (auto &[k, v] : entity_ids) {
+        haha[k] = v.second;
+      }
+
+      auto result =
+          shallow::lower_entity(ctx.with_names(std::move(haha)), std::move(shallow_entity));
       if (not result) {
         todo();
       }
