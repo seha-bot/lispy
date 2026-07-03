@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "analyser/include/typechecker.hpp"
+#include "emitter/include/emitter.hpp"
 #include "parser/include/lowerer.hpp"
 #include "parser/include/parser.hpp"
 
@@ -52,4 +53,6 @@ int main(int argc, char *argv[]) {
     std::cerr << type_env.error() << '\n';
     return EXIT_FAILURE;
   }
+
+  emitter::emit(*ast, *type_env, std::cout);
 }
