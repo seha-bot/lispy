@@ -165,7 +165,7 @@ struct Call {
 struct Case {
   struct Pattern {
     LabelId tag;
-    std::optional<EntityId> binding;
+    std::vector<EntityId> bindings;
   };
 
   struct Choice;

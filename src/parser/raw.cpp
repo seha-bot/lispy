@@ -66,28 +66,30 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
 }
 
 Parser<ast::Case::Choice> case_choice_parser(Context ctx) noexcept {
-  auto atom_pat = [ctx](std::string name) -> ast::Case::Pattern {
-    auto label_id = ctx.es.get_label(std::move(name));
-    return ast::Case::Pattern(label_id, std::nullopt);
-  };
+  auto pattern_label = [] { return atom_starting_with(':'); };
+  auto pattern_bindings = [] { return many_until_last(atom()); };
+  auto arm = [](Context new_ctx) { return expr_parser(new_ctx); };
 
-  auto list_pat = [ctx](std::string name, std::string binding_name) {
-    auto label_id = ctx.es.get_label(std::move(name));
-    auto binding_id = ctx.es.reserve_store(ast::Binding{binding_name, std::nullopt});
-    auto new_ctx = ctx.with_names({{std::move(binding_name), binding_id}});
-    return std::make_pair(new_ctx, ast::Case::Pattern(label_id, binding_id));
-  };
+  return list(pattern_label() >> [=](std::string label_name) {
+    auto label_id = ctx.es.get_label(std::move(label_name));
 
-  auto list_arm = [](std::pair<Context, ast::Case::Pattern> p) -> Parser<ast::Case::Choice> {
-    auto [new_ctx, pat] = p;
-    return expr_parser(new_ctx) |
-           [pat](ast::Expr expr) { return ast::Case::Choice(pat, std::move(expr)); };
-  };
+    return pattern_bindings() >> [=](std::vector<std::string> binding_names) {
+      std::vector<ast::EntityId> binding_ids;
+      std::unordered_map<std::string, ast::EntityId> binding_names_to_ids;
+      binding_ids.reserve(binding_names.size());
+      binding_names_to_ids.reserve(binding_names.size());
 
-  return ANY{
-      seq(to<ast::Case::Choice>, atom_starting_with(':') | atom_pat, expr_parser(ctx)),
-      list(seq(list_pat, atom_starting_with(':'), atom())) >> list_arm,
-  };
+      for (std::string &binding_name : binding_names) {
+        auto binding_id = ctx.es.reserve_store(ast::Binding{binding_name, std::nullopt});
+        binding_ids.push_back(binding_id);
+        binding_names_to_ids.insert({std::move(binding_name), binding_id});
+      }
+      auto new_ctx = ctx.with_names(std::move(binding_names_to_ids));
+
+      return seq(to<ast::Case::Choice>,
+                 pure_once(ast::Case::Pattern(label_id, std::move(binding_ids))), arm(new_ctx));
+    };
+  });
 }
 
 Parser<ast::Expr> special_parser(Context ctx) noexcept {

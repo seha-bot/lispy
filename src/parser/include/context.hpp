@@ -58,6 +58,7 @@ struct Context {
   Context(storage::TypeStorage &ts_, storage::EntityStorage &es_)
       : Context(ts_, es_, std::make_shared<Scope>()) {}
 
+  // TODO: The keys could be std::string_view.
   Context with_names(std::unordered_map<std::string, ast::EntityId> entities) const {
     return {ts, es, std::make_shared<Scope>(std::move(entities), m_scope)};
   }

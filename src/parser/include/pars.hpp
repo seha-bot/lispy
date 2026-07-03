@@ -36,6 +36,8 @@ struct Input {
 
   bool empty() const { return data.empty(); }
 
+  std::size_t size() const { return data.size(); }
+
 private:
   std::span<ast::RawExpr> data;
 };
@@ -262,6 +264,24 @@ template <typename T> Parser<std::vector<T>> many(Parser<T> parser) {
   return {[parser = std::move(parser)](Input exprs) -> ParseResult<std::vector<T>> {
     std::vector<T> out;
     while (not exprs.empty()) {
+      auto res = parser.run(exprs);
+      if (not res) {
+        if (not res.is_soft()) {
+          PROPAGATE(res);
+        }
+        break;
+      }
+      out.push_back(std::move(res.value()));
+      exprs = res.remaining();
+    }
+    return ParseResult{std::move(out), exprs};
+  }};
+}
+
+template <typename T> Parser<std::vector<T>> many_until_last(Parser<T> parser) {
+  return {[parser = std::move(parser)](Input exprs) -> ParseResult<std::vector<T>> {
+    std::vector<T> out;
+    while (exprs.size() > 1) {
       auto res = parser.run(exprs);
       if (not res) {
         if (not res.is_soft()) {

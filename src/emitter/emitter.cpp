@@ -277,8 +277,10 @@ void compile_expr(Context &ctx, Subroutine &sub, ast::Expr const &expr) {
       // might evaluate to x.
       for (auto &choice : case_.choices) {
         std::vector<ast::EntityId> stack_header;
-        if (choice.pattern.binding) {
-          stack_header.push_back(*choice.pattern.binding);
+        if (choice.pattern.bindings.size() == 1) {
+          stack_header.push_back(choice.pattern.bindings[0]);
+        } else if (choice.pattern.bindings.size() > 1) {
+          todo();
         }
 
         auto choice_label = sub.make_local_label();
@@ -377,4 +379,4 @@ void emit(storage::ResolvedAST const &ast, storage::TypeEnv const &type_env, std
   // TODO: assert that sub.instructions.empty()
 }
 
-} // namespace compiler
+} // namespace emitter

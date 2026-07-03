@@ -18,50 +18,50 @@
   (lambda (n Nat)
     (lambda (m Nat)
       (case m
-        :zero n
-        (:succ p) (+ (succ n) p)))))
+        (:zero n)
+        (:succ p (+ (succ n) p))))))
 
 (dec - (to Nat (to Nat Nat)))
 (def -
   (lambda (n Nat)
     (lambda (m Nat)
       (case m
-        :zero n
-        (:succ mp)
+        (:zero n)
+        (:succ mp
           (case n
-            :zero zero
-            (:succ np) (- np mp))))))
+            (:zero zero)
+            (:succ np (- np mp))))))))
 
 (dec < (to Nat (to Nat Bool)))
 (def <
   (lambda (n Nat)
     (lambda (m Nat)
       (case m
-        :zero false
-        (:succ mp)
+        (:zero false)
+        (:succ mp
           (case n
-            :zero true
-            (:succ np) (< np mp))))))
+            (:zero true)
+            (:succ np (< np mp))))))))
 
 (dec = (to Nat (to Nat Bool)))
 (def =
   (lambda (n Nat)
     (lambda (m Nat)
       (case m
-        :zero
+        (:zero
           (case n
-            :zero true
-            (:succ np) false)
-        (:succ mp)
+            (:zero true)
+            (:succ np false)))
+        (:succ mp
           (case n
-            :zero false
-            (:succ np) (= mp np))))))
+            (:zero false)
+            (:succ np (= mp np))))))))
 
 (def fib
   (lambda n
     (case (< n two)
-      :true n
-      :false (+ (fib (- n one)) (fib (- n two))))))
+      (:true n)
+      (:false (+ (fib (- n one)) (fib (- n two)))))))
 
 (dec fib-iter (to Nat (to Nat (to Nat Nat))))
 (def fib-iter
@@ -69,5 +69,5 @@
     (lambda (a Nat)
       (lambda (b Nat)
         (case (= n zero)
-          :true a
-          :false (fib-iter (- n one) b (+ a b)))))))
+          (:true a)
+          (:false (fib-iter (- n one) b (+ a b))))))))
