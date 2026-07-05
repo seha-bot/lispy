@@ -2,11 +2,9 @@
 #define AST_HPP
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 #include <variant>
 #include <vector>
 
@@ -17,58 +15,6 @@ struct TypeStorage;
 } // namespace storage
 
 namespace ast {
-
-struct Source {
-  int line;
-  int col;
-};
-
-struct Atom {
-  Atom(std::string value, Source) : m_name(std::move(value)) {}
-
-  std::string const &name() const { return m_name; }
-  std::string &name() { return m_name; }
-
-private:
-  std::string m_name;
-};
-
-struct Number {
-  Number(std::int64_t value, Source) : m_value(value) {}
-
-  std::int64_t value() const { return m_value; }
-
-private:
-  std::int64_t m_value;
-};
-
-struct List;
-
-using RawExprBase = std::variant<Atom, List, Number>;
-struct RawExpr;
-
-struct List {
-  List();
-  List(std::vector<RawExpr> list, Source);
-  bool empty() const;
-  std::size_t size() const;
-  RawExpr &operator[](std::size_t i);
-  std::vector<RawExpr> &elements();
-
-private:
-  std::vector<RawExpr> m_elements;
-};
-
-struct RawExpr : RawExprBase {
-  using RawExprBase::variant;
-};
-
-inline List::List() = default;
-inline List::List(std::vector<RawExpr> list, Source) : m_elements(std::move(list)) {}
-inline bool List::empty() const { return m_elements.empty(); }
-inline std::size_t List::size() const { return m_elements.size(); }
-inline RawExpr &List::operator[](std::size_t i) { return m_elements[i]; }
-inline std::vector<RawExpr> &List::elements() { return m_elements; }
 
 // TODO: make a typed wrapper around this so, for example, lambda knows that
 // the entity it holds is a Lambda::Parameter.
@@ -154,7 +100,7 @@ struct EntityReference {
   EntityId id;
 };
 
-using ExprBase = std::variant<Number, Call, Case, Constructor, Lambda, EntityReference>;
+using ExprBase = std::variant<Call, Case, Constructor, Lambda, EntityReference>;
 struct Expr;
 
 struct Call {

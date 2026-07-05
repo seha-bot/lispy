@@ -51,7 +51,6 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
 
 std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) noexcept {
   struct Visitor {
-    std::expected<ast::TypeId, Error> operator()(ast::Number const &) { todo(); }
     std::expected<ast::TypeId, Error> operator()(ast::Call const &call) {
       auto callee_type = get_type(ctx, *call.callee);
       if (not callee_type) {

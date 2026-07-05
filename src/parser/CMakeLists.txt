@@ -1,6 +1,5 @@
 add_library(parser
   parser.cpp
-  raw.cpp
   lowerer.cpp
 )
 

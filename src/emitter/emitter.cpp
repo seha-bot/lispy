@@ -256,7 +256,6 @@ void compile_entity(Context &ctx, Subroutine &sub, ast::EntityId entity_id);
 
 void compile_expr(Context &ctx, Subroutine &sub, ast::Expr const &expr) {
   struct Visitor {
-    void operator()(ast::Number const &) { todo(); }
     void operator()(ast::Call const &call) {
       compile_expr(ctx, sub, *call.callee);
       assert(not call.arguments.empty());

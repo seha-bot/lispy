@@ -41,6 +41,9 @@ int main(int argc, char *argv[]) {
     std::cerr << raw_ast.error() << '\n';
     return EXIT_FAILURE;
   }
+  for (auto &expr : raw_ast.value()) {
+    std::cout << expr << '\n';
+  }
 
   auto ast = parser::lower_ast(filename, *std::move(raw_ast));
   if (not ast) {
@@ -48,11 +51,11 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  auto type_env = analyser::typecheck(*ast);
-  if (not type_env) {
-    std::cerr << type_env.error() << '\n';
-    return EXIT_FAILURE;
-  }
-
-  emitter::emit(*ast, *type_env, std::cout);
+  // auto type_env = analyser::typecheck(*ast);
+  // if (not type_env) {
+  //   std::cerr << type_env.error() << '\n';
+  //   return EXIT_FAILURE;
+  // }
+  //
+  // emitter::emit(*ast, *type_env, std::cout);
 }
