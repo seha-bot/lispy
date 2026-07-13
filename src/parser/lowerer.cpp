@@ -116,18 +116,20 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
 
   auto store = [ctx](ast::Type type) { return ctx.ts.store(std::move(type)); };
 
-  auto tuple_parser = many(rec_type_parser()) | to<ast::TypeTuple> | store;
+  auto to_label = [ctx](ExprView atom_view) -> ast::LabelId {
+    // TODO: what if this isn't a label?
+    return ctx.es.get_label(std::move(atom_view.head_as_atom().name));
+  };
+
+  auto struct_parser = many(list(seq(to<ast::TypeStruct::Element>,
+                                     atom("a struct element tag") | to_label, rec_type_parser()))) |
+                       to<ast::TypeStruct> | store;
 
   auto variant_parser = [&] {
-    auto to_label = [ctx](ExprView atom_view) -> ast::LabelId {
-      // TODO: what if this isn't a label?
-      return ctx.es.get_label(std::move(atom_view.head_as_atom().name));
-    };
-
     auto element_parser = any(std::array{
-        seq(to<ast::TypeVariant::Element>, atom("a variant element name") | to_label,
+        seq(to<ast::TypeVariant::Element>, atom("a variant element tag") | to_label,
             pure(std::optional<ast::TypeId>())),
-        list(seq(to<ast::TypeVariant::Element>, atom("a variant element name") | to_label,
+        list(seq(to<ast::TypeVariant::Element>, atom("a variant element tag") | to_label,
                  rec_type_parser())),
     });
 
@@ -139,7 +141,7 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
   return any(std::array{
       defined_name() | lookup | store,
       list(any(std::array{
-          atom_exact("tuple") > std::move(tuple_parser),
+          atom_exact("struct") > std::move(struct_parser),
           atom_exact("variant") > std::move(variant_parser),
           atom_exact("to") > std::move(to_parser),
       })),

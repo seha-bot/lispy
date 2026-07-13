@@ -69,9 +69,15 @@ struct TypeVariant {
   std::vector<Element> elements;
 };
 
-struct TypeTuple {
-  bool operator==(TypeTuple const &) const = default;
-  std::vector<TypeId> elements;
+struct TypeStruct {
+  struct Element {
+    bool operator==(Element const &) const = default;
+    LabelId tag;
+    TypeId type;
+  };
+
+  bool operator==(TypeStruct const &) const = default;
+  std::vector<Element> elements;
 };
 
 struct TypeApplication {
@@ -86,7 +92,7 @@ struct TypeVariable {
 };
 
 using TypeBase =
-    std::variant<NamedType, TypeArrow, TypeVariant, TypeTuple, TypeApplication, TypeVariable>;
+    std::variant<NamedType, TypeArrow, TypeVariant, TypeStruct, TypeApplication, TypeVariable>;
 struct Type : TypeBase {
   using TypeBase::variant;
 };
