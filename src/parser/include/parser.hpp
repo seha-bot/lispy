@@ -13,6 +13,7 @@ namespace parser {
 struct StringView {
   StringView(std::string_view view, raw_ast::SourceLocation pos) : m_view(view), m_pos(pos) {}
 
+  // TODO: This should probably also be a SourceRange.
   raw_ast::SourceLocation pos() const { return m_pos; }
   bool empty() const { return m_view.empty(); }
   StringView take(std::size_t n) const { return {m_view.substr(0, n), m_pos}; }

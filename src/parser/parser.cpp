@@ -27,10 +27,7 @@ Parser<StringView> char_(char c) {
 };
 
 Parser<StringView> ws() {
-  return many_where<StringView>(parsy::MeaningfulPredicate{
-      .meaning = "whitespace",
-      .fn = [](char c) -> bool { return is_space(c); },
-  });
+  return parsy::many_where<StringView>([](char c) -> bool { return is_space(c); });
 }
 
 Parser<StringView> wsc() {
@@ -41,10 +38,7 @@ Parser<StringView> wsc() {
     });
   };
   auto comment_content = [] {
-    return many_where<StringView>(parsy::MeaningfulPredicate{
-        .meaning = "no newline",
-        .fn = [](char c) -> bool { return c != '\n'; },
-    });
+    return parsy::many_where<StringView>([](char c) -> bool { return c != '\n'; });
   };
 
   // TODO: No need for this to be allocating.

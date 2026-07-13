@@ -30,20 +30,15 @@ struct Context {
   std::vector<ast::Entity> const &entities;
   Env env;
 
-  std::string tip(ast::TypeId t) {
+  ast::Entity const &entity(ast::EntityId e) const { return entities[e.value]; }
+
+  std::string type_name(ast::TypeId t) const {
     if (auto a = std::get_if<ast::NamedType>(&ts.read(t))) {
-      auto name = std::visit([](auto &entity) { return static_cast<std::string>(entity.name); },
-                             entities[a->definition.value]);
-      return name;
+      return entity(a->definition).name();
     } else if (auto b = std::get_if<ast::TypeArrow>(&ts.read(t))) {
-      return "(" + tip(b->from) + ") -> (" + tip(b->to) + ")";
+      return "(" + type_name(b->from) + ") -> (" + type_name(b->to) + ")";
     }
     return t.to_string();
-  }
-
-  std::string ime(ast::EntityId e) {
-    return std::visit([](auto &entity) { return static_cast<std::string>(entity.name); },
-                      entities[e.value]);
   }
 };
 
@@ -240,7 +235,7 @@ std::expected<storage::TypeEnv, Error> typecheck(storage::ResolvedAST const &ast
     if (not res) {
       return std::unexpected(res.error());
     }
-    std::cout << ctx.ime(ast::EntityId{i}) << " : " << ctx.tip(*res) << '\n';
+    std::cout << ctx.entity(ast::EntityId{i}).name() << " : " << ctx.type_name(*res) << '\n';
   }
 
   return storage::TypeEnv{ctx.env.type_of};

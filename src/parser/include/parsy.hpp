@@ -386,13 +386,12 @@ Parsy<T, T> satisfies(MeaningfulPredicate<Pred> pred) {
   }};
 }
 
-// FIX: this one doesn't need a meaningful predicate.
 template <TokenView T, std::predicate<typename TokenTraits<T>::value> Pred>
-Parsy<T, T> many_where(MeaningfulPredicate<Pred> pred) {
+Parsy<T, T> many_where(Pred pred) {
   return {[pred = std::move(pred)](T tokens) -> ParseResult<T, T> {
     std::size_t matched_cnt = 0;
     auto remaining_tokens = tokens;
-    while (not remaining_tokens.empty() and pred.fn(remaining_tokens.head())) {
+    while (not remaining_tokens.empty() and pred(remaining_tokens.head())) {
       remaining_tokens = remaining_tokens.next();
       ++matched_cnt;
     }
