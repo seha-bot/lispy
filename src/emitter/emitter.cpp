@@ -232,16 +232,16 @@ struct Context {
     }
     std::unreachable();
   }
-  std::size_t discriminator_index(ast::TypeId type_id, ast::LabelId label_id) const {
+  std::size_t discriminator_index(ast::TypeId type_id, ast::TagId tag_id) const {
     auto &type = get_variant(type_id);
     std::size_t index = 0;
-    for (auto &[variant_label_id, _] : type.elements) {
-      if (variant_label_id == label_id) {
+    for (auto &[element_tag_id, _] : type.elements) {
+      if (element_tag_id == tag_id) {
         return index;
       }
       ++index;
     }
-    // SAFETY: It is assumed that the given label_id exists in the variant.
+    // SAFETY: It is assumed that the given tag_id exists in the variant.
     std::unreachable();
   }
 

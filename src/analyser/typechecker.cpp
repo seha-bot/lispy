@@ -19,6 +19,7 @@ namespace analyser {
 
 namespace {
 
+// FIX: Use TypeEnv from storage instead of this.
 struct Env {
   std::unordered_map<ast::Expr const *, ast::TypeId> type_of;
   // TODO: this is really not needed though.
@@ -38,7 +39,7 @@ struct Context {
     } else if (auto b = std::get_if<ast::TypeArrow>(&ts.read(t))) {
       return "(" + type_name(b->from) + ") -> (" + type_name(b->to) + ")";
     }
-    return t.to_string();
+    return ts.to_string(t);
   }
 };
 

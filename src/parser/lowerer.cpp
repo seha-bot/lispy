@@ -116,20 +116,20 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
 
   auto store = [ctx](ast::Type type) { return ctx.ts.store(std::move(type)); };
 
-  auto to_label = [ctx](ExprView atom_view) -> ast::LabelId {
-    // TODO: what if this isn't a label?
-    return ctx.es.get_label(std::move(atom_view.head_as_atom().name));
+  auto to_tag = [ctx](ExprView atom_view) -> ast::TagId {
+    // TODO: what if this isn't a tag?
+    return ctx.es.get_tag(std::move(atom_view.head_as_atom().name));
   };
 
   auto struct_parser = many(list(seq(to<ast::TypeStruct::Element>,
-                                     atom("a struct element tag") | to_label, rec_type_parser()))) |
+                                     atom("a struct element tag") | to_tag, rec_type_parser()))) |
                        to<ast::TypeStruct> | store;
 
   auto variant_parser = [&] {
     auto element_parser = any(std::array{
-        seq(to<ast::TypeVariant::Element>, atom("a variant element tag") | to_label,
-            pure(std::optional<ast::TypeId>())),
-        list(seq(to<ast::TypeVariant::Element>, atom("a variant element tag") | to_label,
+        seq(to<ast::TypeVariant::Element>, atom("a variant element tag") | to_tag,
+            pure(ast::TypeId::unit_id)),
+        list(seq(to<ast::TypeVariant::Element>, atom("a variant element tag") | to_tag,
                  rec_type_parser())),
     });
 
@@ -151,14 +151,14 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
 Parser<ast::Expr> expr_parser(Context ctx) noexcept;
 
 Parser<ast::Case::Choice> case_choice_parser(Context ctx) noexcept {
-  auto pattern_label = [] { return atom_starting_with(':'); };
+  auto pattern_tag = [] { return atom_starting_with(':'); };
   auto pattern_bindings = [] {
     return many(atom("a pattern binding") < peek(atom("a pattern binding")));
   };
   auto arm = [](Context new_ctx) { return expr_parser(new_ctx); };
 
-  return list(pattern_label() >> [=](ExprView label_name_view) {
-    auto label_id = ctx.es.get_label(std::move(label_name_view.head_as_atom().name));
+  return list(pattern_tag() >> [=](ExprView tag_name_view) {
+    auto tag_id = ctx.es.get_tag(std::move(tag_name_view.head_as_atom().name));
 
     return pattern_bindings() >> [=](std::vector<ExprView> binding_name_views) {
       std::vector<ast::EntityId> binding_ids;
@@ -175,7 +175,7 @@ Parser<ast::Case::Choice> case_choice_parser(Context ctx) noexcept {
       auto new_ctx = ctx.with_names(std::move(binding_names_to_ids));
 
       return seq(to<ast::Case::Choice>,
-                 pure_once(ast::Case::Pattern(label_id, std::move(binding_ids))), arm(new_ctx));
+                 pure_once(ast::Case::Pattern(tag_id, std::move(binding_ids))), arm(new_ctx));
     };
   });
 }
@@ -213,21 +213,21 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
     return seq(construct_case, expr_parser(ctx), many(case_choice_parser(ctx)));
   };
 
-  auto label_parser = [ctx](ExprView name_view) -> Parser<ast::Constructor> {
-    auto label = ctx.es.get_label(std::move(name_view.head_as_atom().name));
+  auto tag_parser = [ctx](ExprView name_view) -> Parser<ast::Constructor> {
+    auto tag_id = ctx.es.get_tag(std::move(name_view.head_as_atom().name));
 
-    auto construct_label = [label](ast::TypeId type, std::optional<ast::Expr> argument) {
+    auto construct_tag = [tag_id](ast::TypeId type_id, std::optional<ast::Expr> argument) {
       auto allocate = [](ast::Expr expr) { return std::make_unique<ast::Expr>(std::move(expr)); };
-      return ast::Constructor{label, type, std::move(argument).transform(allocate)};
+      return ast::Constructor{tag_id, type_id, std::move(argument).transform(allocate)};
     };
 
-    return seq(construct_label, type_parser(ctx), optional(expr_parser(ctx)));
+    return seq(construct_tag, type_parser(ctx), optional(expr_parser(ctx)));
   };
 
   return any(std::array{
       atom_exact("lambda") >> lambda_parser | to<ast::Expr>,
       atom_exact("case") >> case_parser | to<ast::Expr>,
-      atom_starting_with(':') >> label_parser | to<ast::Expr>,
+      atom_starting_with(':') >> tag_parser | to<ast::Expr>,
   });
 }
 
@@ -447,9 +447,3 @@ lower_ast(std::string filename, std::vector<raw_ast::Expr> ast) noexcept {
 }
 
 } // namespace parser
-
-// FIX: this doesn't belong here!!!
-bool ast::TypeId::operator==(TypeId const &that) const { return m_rep->equal(*this, that); }
-std::string ast::TypeId::to_string() const {
-  return std::to_string(m_rep->representative(*this).m_id);
-}

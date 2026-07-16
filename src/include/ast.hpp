@@ -8,12 +8,6 @@
 #include <variant>
 #include <vector>
 
-// TODO: wtf?
-namespace storage {
-struct RepresentativeSets;
-struct TypeStorage;
-} // namespace storage
-
 namespace ast {
 
 // TODO: make a typed wrapper around this so, for example, lambda knows that
@@ -23,73 +17,61 @@ struct EntityId {
   std::size_t value;
 };
 
-struct Label {
-  bool operator==(Label const &) const = default;
+struct Tag {
+  bool operator==(Tag const &) const = default;
   std::string name;
 };
 
-struct LabelId {
-  bool operator==(LabelId const &) const = default;
+struct TagId {
+  bool operator==(TagId const &) const = default;
   std::size_t id;
 };
 
 struct TypeId {
-  explicit TypeId(std::size_t id, storage::RepresentativeSets &rep) : m_id(id), m_rep(&rep) {}
+  /// Special value which represents the unit type.
+  static const TypeId unit_id;
 
-  bool operator==(TypeId const &that) const;
-  std::string to_string() const;
-
-private:
-  friend storage::RepresentativeSets;
-  friend storage::TypeStorage;
-  std::size_t m_id;
-  storage::RepresentativeSets *m_rep;
+  std::size_t value;
 };
 
+constexpr TypeId TypeId::unit_id = {.value = static_cast<std::size_t>(-1)};
+
 struct NamedType {
-  bool operator==(NamedType const &) const = default;
   EntityId definition;
 };
 
 struct TypeArrow {
-  bool operator==(TypeArrow const &) const = default;
   TypeId from;
   TypeId to;
 };
 
 struct TypeVariant {
   struct Element {
-    bool operator==(Element const &) const = default;
-    LabelId tag;
-    // If type is std::nullopt, then this is treated as if it is a type which contains one value.
-    std::optional<TypeId> type;
+    TagId tag;
+    TypeId type;
   };
 
-  bool operator==(TypeVariant const &) const = default;
+  // This is supposed to be sorted by tag.
   std::vector<Element> elements;
 };
 
 struct TypeStruct {
+  // TODO: This is the same as the one in TypeVariant.
   struct Element {
-    bool operator==(Element const &) const = default;
-    LabelId tag;
+    TagId tag;
     TypeId type;
   };
 
-  bool operator==(TypeStruct const &) const = default;
   std::vector<Element> elements;
 };
 
 struct TypeApplication {
-  bool operator==(TypeApplication const &) const = default;
   TypeId function;
   std::vector<TypeId> arguments;
 };
 
-struct TypeVariable {
-  bool operator==(TypeVariable const &) const = default;
-  std::size_t id;
-};
+// Each object represents a unique variable.
+struct TypeVariable {};
 
 using TypeBase =
     std::variant<NamedType, TypeArrow, TypeVariant, TypeStruct, TypeApplication, TypeVariable>;
@@ -116,7 +98,7 @@ struct Call {
 
 struct Case {
   struct Pattern {
-    LabelId tag;
+    TagId tag;
     std::vector<EntityId> bindings;
   };
 
@@ -127,7 +109,7 @@ struct Case {
 };
 
 struct Constructor {
-  LabelId tag;
+  TagId tag;
   TypeId type;
   std::optional<std::unique_ptr<Expr>> argument;
 };

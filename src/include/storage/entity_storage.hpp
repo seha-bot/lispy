@@ -40,13 +40,13 @@ struct EntityStorage {
     return entities;
   }
 
-  ast::LabelId get_label(std::string name) {
-    auto id = ast::LabelId{m_labels.size()};
-    ast::Label label{std::move(name)};
+  ast::TagId get_tag(std::string name) {
+    ast::TagId tag_id{m_tags.size()};
+    ast::Tag tag{std::move(name)};
 
-    auto [iter, did_insert] = m_labels.insert({std::move(label), id});
+    auto [iter, did_insert] = m_tags.insert({std::move(tag), tag_id});
     if (did_insert) {
-      iter->second = id;
+      iter->second = tag_id;
     }
     return iter->second;
   }
@@ -68,8 +68,8 @@ struct EntityStorage {
 
 private:
   std::vector<std::optional<ast::Entity>> m_entities;
-  using Hasher = decltype([](ast::Label const &l) { return std::hash<std::string>{}(l.name); });
-  std::unordered_map<ast::Label, ast::LabelId, Hasher> m_labels;
+  using Hasher = decltype([](ast::Tag const &x) { return std::hash<std::string>{}(x.name); });
+  std::unordered_map<ast::Tag, ast::TagId, Hasher> m_tags;
 };
 
 } // namespace storage
