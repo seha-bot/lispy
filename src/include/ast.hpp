@@ -23,7 +23,7 @@ struct Tag {
 };
 
 struct TagId {
-  bool operator==(TagId const &) const = default;
+  auto operator<=>(TagId const &) const = default;
   std::size_t id;
 };
 

@@ -89,6 +89,12 @@ template <typename A> Parser<A> list(Parser<A> parser) {
   return std::move(satisfy_list) >> std::move(parse_list_body);
 }
 
+Parser<ast::TagId> tag_parser(Context ctx) {
+  return atom_starting_with(':') | [ctx = std::move(ctx)](ExprView atom_view) -> ast::TagId {
+    return ctx.es.get_tag(std::move(atom_view.head_as_atom().name));
+  };
+}
+
 Parser<ast::TypeId> type_parser(Context ctx) noexcept {
   auto rec_type_parser = [ctx] { return parsy::rec<ExprView>([ctx] { return type_parser(ctx); }); };
 
@@ -116,24 +122,22 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
 
   auto store = [ctx](ast::Type type) { return ctx.ts.store(std::move(type)); };
 
-  auto to_tag = [ctx](ExprView atom_view) -> ast::TagId {
-    // TODO: what if this isn't a tag?
-    return ctx.es.get_tag(std::move(atom_view.head_as_atom().name));
-  };
-
-  auto struct_parser = many(list(seq(to<ast::TypeStruct::Element>,
-                                     atom("a struct element tag") | to_tag, rec_type_parser()))) |
-                       to<ast::TypeStruct> | store;
+  auto struct_parser =
+      many(list(seq(to<ast::TypeStruct::Element>, tag_parser(ctx), rec_type_parser()))) |
+      to<ast::TypeStruct> | store;
 
   auto variant_parser = [&] {
     auto element_parser = any(std::array{
-        seq(to<ast::TypeVariant::Element>, atom("a variant element tag") | to_tag,
-            pure(ast::TypeId::unit_id)),
-        list(seq(to<ast::TypeVariant::Element>, atom("a variant element tag") | to_tag,
-                 rec_type_parser())),
+        seq(to<ast::TypeVariant::Element>, tag_parser(ctx), pure(ast::TypeId::unit_id)),
+        list(seq(to<ast::TypeVariant::Element>, tag_parser(ctx), rec_type_parser())),
     });
 
-    return many(std::move(element_parser)) | to<ast::TypeVariant> | store;
+    return many(std::move(element_parser)) |
+           [](std::vector<ast::TypeVariant::Element> elements) {
+             std::ranges::sort(elements, {}, [](auto &e) { return e.tag; });
+             return elements;
+           } |
+           to<ast::TypeVariant> | store;
   }();
 
   auto to_parser = seq(to<ast::TypeArrow>, rec_type_parser(), rec_type_parser()) | store;
@@ -151,15 +155,12 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
 Parser<ast::Expr> expr_parser(Context ctx) noexcept;
 
 Parser<ast::Case::Choice> case_choice_parser(Context ctx) noexcept {
-  auto pattern_tag = [] { return atom_starting_with(':'); };
   auto pattern_bindings = [] {
     return many(atom("a pattern binding") < peek(atom("a pattern binding")));
   };
   auto arm = [](Context new_ctx) { return expr_parser(new_ctx); };
 
-  return list(pattern_tag() >> [=](ExprView tag_name_view) {
-    auto tag_id = ctx.es.get_tag(std::move(tag_name_view.head_as_atom().name));
-
+  return list(tag_parser(ctx) >> [=](ast::TagId tag_id) {
     return pattern_bindings() >> [=](std::vector<ExprView> binding_name_views) {
       std::vector<ast::EntityId> binding_ids;
       std::unordered_map<std::string, ast::EntityId> binding_names_to_ids;
@@ -213,9 +214,7 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
     return seq(construct_case, expr_parser(ctx), many(case_choice_parser(ctx)));
   };
 
-  auto tag_parser = [ctx](ExprView name_view) -> Parser<ast::Constructor> {
-    auto tag_id = ctx.es.get_tag(std::move(name_view.head_as_atom().name));
-
+  auto constructor_parser = [ctx](ast::TagId tag_id) -> Parser<ast::Constructor> {
     auto construct_tag = [tag_id](ast::TypeId type_id, std::optional<ast::Expr> argument) {
       auto allocate = [](ast::Expr expr) { return std::make_unique<ast::Expr>(std::move(expr)); };
       return ast::Constructor{tag_id, type_id, std::move(argument).transform(allocate)};
@@ -227,7 +226,7 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
   return any(std::array{
       atom_exact("lambda") >> lambda_parser | to<ast::Expr>,
       atom_exact("case") >> case_parser | to<ast::Expr>,
-      atom_starting_with(':') >> tag_parser | to<ast::Expr>,
+      tag_parser(ctx) >> constructor_parser | to<ast::Expr>,
   });
 }
 
