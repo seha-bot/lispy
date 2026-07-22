@@ -56,11 +56,11 @@ private:
 
 struct Context {
   Context(storage::TypeStorage &ts_, storage::EntityStorage &es_)
-      : Context(ts_, es_, std::make_shared<Scope>()) {}
+      : Context(ts_, es_, std::make_shared<Scope>(), {}) {}
 
   // TODO: The keys could be std::string_view.
   Context with_names(std::unordered_map<std::string, ast::EntityId> entities) const {
-    return {ts, es, std::make_shared<Scope>(std::move(entities), m_scope)};
+    return {ts, es, std::make_shared<Scope>(std::move(entities), m_scope), m_type_binding_ids};
   }
 
   std::optional<ast::EntityId> lookup(std::string_view name) const {
@@ -70,14 +70,30 @@ struct Context {
   void capture(ast::EntityId const &result) { return Scope::capture(es, m_scope.get(), result); }
   std::unordered_set<ast::EntityId> const &captures() const { return m_scope->captures(); }
 
+  std::size_t type_binding_index(ast::EntityId type_binding_id) const {
+    auto it = std::ranges::find(m_type_binding_ids, type_binding_id);
+    if (it == m_type_binding_ids.end()) {
+      todo();
+    }
+    return static_cast<std::size_t>(m_type_binding_ids.end() - it) - 1;
+  }
+
+  void push_type_binding(ast::EntityId type_binding_id) {
+    m_type_binding_ids.push_back(type_binding_id);
+  }
+  void pop_type_binding() { m_type_binding_ids.pop_back(); }
+
   storage::TypeStorage &ts;
   storage::EntityStorage &es;
 
 private:
-  Context(storage::TypeStorage &ts_, storage::EntityStorage &es_, std::shared_ptr<Scope> scope)
-      : ts(ts_), es(es_), m_scope(std::move(scope)) {}
+  Context(storage::TypeStorage &ts_, storage::EntityStorage &es_, std::shared_ptr<Scope> scope,
+          std::vector<ast::EntityId> type_binding_ids)
+      : ts(ts_), es(es_), m_scope(std::move(scope)),
+        m_type_binding_ids(std::move(type_binding_ids)) {}
 
   std::shared_ptr<Scope> m_scope;
+  std::vector<ast::EntityId> m_type_binding_ids;
 };
 
 } // namespace parser

@@ -34,12 +34,16 @@ struct Context {
   ast::Entity const &entity(ast::EntityId e) const { return entities[e.value]; }
 
   std::string type_name(ast::TypeId t) const {
-    if (auto a = std::get_if<ast::NamedType>(&ts.read(t))) {
-      return entity(a->definition).name();
-    } else if (auto b = std::get_if<ast::TypeArrow>(&ts.read(t))) {
-      return "(" + type_name(b->from) + ") -> (" + type_name(b->to) + ")";
+    if (auto a = std::get_if<ast::type::NamedReference>(&ts.read(t).unnamed_part())) {
+      return entity(a->definition_id).name();
+    } else if (auto b = std::get_if<ast::type::Arrow>(&ts.read(t).unnamed_part())) {
+      return "(" + type_name(b->from_id) + ") -> (" + type_name(b->to_id) + ")";
+    } else if (auto c = std::get_if<ast::type::ForAll>(&ts.read(t).unnamed_part())) {
+      return "\\." + type_name(c->type_id);
+    } else if (auto d = std::get_if<ast::type::DeBruijnIndex>(&ts.read(t).unnamed_part())) {
+      return std::to_string(d->value);
     }
-    return ts.to_string(t);
+    return "#" + ts.to_string(t);
   }
 };
 
@@ -58,12 +62,12 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
       // for (auto& arg : call.arguments) {
       //     auto return_type_str = ctx.tip(return_type);
 
-      //     auto read_return_type = [&] -> ast::Type const& {
+      //     auto read_return_type = [&] -> ast::type::Type const& {
       //         return ctx.ts.read(return_type);
       //     };
-      //     if (std::holds_alternative<ast::TypeArrow>(read_return_type())) {
-      //         auto arr = [&] -> ast::TypeArrow const& {
-      //             return std::get<ast::TypeArrow>(read_return_type());
+      //     if (std::holds_alternative<ast::type::TypeArrow>(read_return_type())) {
+      //         auto arr = [&] -> ast::type::TypeArrow const& {
+      //             return std::get<ast::type::TypeArrow>(read_return_type());
       //         };
 
       //         auto arg_type = get_type(ctx, arg);
@@ -90,7 +94,7 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
           todo();
         }
 
-        callee_type_calculated = ctx.ts.store(ast::TypeArrow{*arg_type, callee_type_calculated});
+        callee_type_calculated = ctx.ts.store(ast::type::Arrow{*arg_type, callee_type_calculated});
       }
 
       bool const did_merge = ctx.ts.merge(*callee_type, callee_type_calculated);
@@ -136,8 +140,8 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
       return lcall.type;
     }
     std::expected<ast::TypeId, Error> operator()(ast::Lambda const &lambda) {
-      auto parameter_type = get_entity_type(ctx, lambda.parameter);
-      if (not parameter_type) {
+      auto binding_type = get_entity_type(ctx, lambda.parameter);
+      if (not binding_type) {
         todo();
       }
 
@@ -148,7 +152,23 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
 
       // TODO: in this situation you don't have to check for duplicates with ts.store().
       // Make an unchecked version.
-      return ctx.ts.store(ast::TypeArrow{*parameter_type, *body_type});
+      return ctx.ts.store(ast::type::Arrow{*binding_type, *body_type});
+    }
+    std::expected<ast::TypeId, Error> operator()(ast::TVLambda const &tv_lambda) {
+      // TODO: Figure out kind inference.
+      // auto binding_type = get_entity_kind(ctx, tv_lambda.binding_id);
+      // if (not binding_type) {
+      //   todo();
+      // }
+
+      auto body_type = get_type(ctx, *tv_lambda.body);
+      if (not body_type) {
+        todo();
+      }
+
+      // TODO: in this situation you don't have to check for duplicates with ts.store().
+      // Make an unchecked version.
+      return ctx.ts.store(ast::type::ForAll{*body_type});
     }
     std::expected<ast::TypeId, Error> operator()(ast::EntityReference const &entity_ref) {
       return get_entity_type(ctx, entity_ref.id);
@@ -204,6 +224,10 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
       }
       return *binding.type;
     }
+    std::expected<ast::TypeId, Error> operator()(ast::TypeBinding const &) {
+      // FIX: This is a hack.
+      return ast::TypeId{};
+    }
 
     Context &ctx;
   };
@@ -231,13 +255,24 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
 
 std::expected<storage::TypeEnv, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
   Context ctx{*ast.ts, ast.entities, {}};
+  std::vector<ast::TypeId> type_ids;
   for (std::size_t i = 0; i < ast.entities.size(); ++i) {
     auto res = get_entity_type(ctx, ast::EntityId{i});
     if (not res) {
       return std::unexpected(res.error());
     }
-    std::cout << ctx.entity(ast::EntityId{i}).name() << " : " << ctx.type_name(*res) << '\n';
+    type_ids.push_back(*res);
   }
+
+  for (std::size_t i = 0; i < ast.entities.size(); ++i) {
+    auto &type_id = type_ids[i];
+    std::cout << ctx.entity(ast::EntityId{i}).name() << " : " << ctx.type_name(type_id) << '\n';
+  }
+
+  // TODO:
+  // if (ctx.ts.has_uninferred_types()) {
+  //   todo();
+  // }
 
   return storage::TypeEnv{ctx.env.type_of};
 }

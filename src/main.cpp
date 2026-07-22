@@ -51,11 +51,11 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  // auto type_env = analyser::typecheck(*ast);
-  // if (not type_env) {
-  //   std::cerr << type_env.error() << '\n';
-  //   return EXIT_FAILURE;
-  // }
-  //
+  auto type_env = analyser::typecheck(*ast);
+  if (not type_env) {
+    std::cerr << type_env.error() << '\n';
+    return EXIT_FAILURE;
+  }
+
   // emitter::emit(*ast, *type_env, std::cout);
 }

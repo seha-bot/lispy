@@ -221,13 +221,13 @@ struct Context {
     return lambda.captures;
   }
 
-  ast::TypeVariant const &get_variant(ast::TypeId type_id) const {
+  ast::type::Variant const &get_variant(ast::TypeId type_id) const {
     // SAFETY: This is assumed to be a variant at this point.
     auto &r = ast.ts->read(type_id);
-    if (auto *variant = std::get_if<ast::TypeVariant>(&r)) {
+    if (auto *variant = std::get_if<ast::type::Variant>(&r.unnamed_part())) {
       return *variant;
-    } else if (auto *type_ref = std::get_if<ast::NamedType>(&r)) {
-      auto &def = std::get<ast::TypeFormDefinition>(entity(type_ref->definition));
+    } else if (auto *named_reference = std::get_if<ast::type::NamedReference>(&r.unnamed_part())) {
+      auto &def = std::get<ast::TypeFormDefinition>(entity(named_reference->definition_id));
       return get_variant(def.type);
     }
     std::unreachable();
@@ -331,6 +331,7 @@ void compile_expr(Context &ctx, Subroutine &sub, ast::Expr const &expr) {
       sub.push<vm::Mnemonic::push>(1 + captures.size());
       sub.push<vm::Mnemonic::mka>();
     }
+    void operator()(ast::TVLambda const &) { todo(); }
     void operator()(ast::EntityReference const &entity_ref) {
       return compile_entity(ctx, sub, entity_ref.id);
     }
@@ -353,6 +354,7 @@ void compile_entity(Context &ctx, Subroutine &sub, ast::EntityId entity_id) {
     void operator()(ast::Binding const &) {
       sub.push<vm::Mnemonic::pushi>(sub.get_relative_stack_index(entity_id));
     }
+    void operator()(ast::TypeBinding const &) { todo(); }
 
     Context &ctx;
     Subroutine &sub;

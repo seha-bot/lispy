@@ -32,9 +32,11 @@ struct ShallowModuleDefinition {
   raw_ast::Expr raw_entities;
 };
 
+// TODO: This must be in the same order as EntityBase from ast.hpp.
+// Automate this to remove human error.
 using ShallowEntityBase =
-    std::variant<ShallowMergedValueDefinition, ShallowValueDefinition, ShallowTypeFormDefinition,
-                 ShallowValueDeclaration, ShallowModuleDefinition>;
+    std::variant<ShallowValueDeclaration, ShallowValueDefinition, ShallowMergedValueDefinition,
+                 ShallowTypeFormDefinition, ShallowModuleDefinition>;
 
 // TODO: rename to entity
 struct ShallowEntity : ShallowEntityBase {

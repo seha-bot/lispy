@@ -36,59 +36,17 @@ struct TypeId {
 
 constexpr TypeId TypeId::unit_id = {.value = static_cast<std::size_t>(-1)};
 
-struct NamedType {
-  EntityId definition;
-};
-
-struct TypeArrow {
-  TypeId from;
-  TypeId to;
-};
-
-struct TypeVariant {
-  struct Element {
-    TagId tag;
-    TypeId type;
-  };
-
-  // This is supposed to be sorted by tag.
-  std::vector<Element> elements;
-};
-
-struct TypeStruct {
-  // TODO: This is the same as the one in TypeVariant.
-  struct Element {
-    TagId tag;
-    TypeId type;
-  };
-
-  std::vector<Element> elements;
-};
-
-struct TypeApplication {
-  TypeId function;
-  std::vector<TypeId> arguments;
-};
-
-// Each object represents a unique variable.
-struct TypeVariable {};
-
-using TypeBase =
-    std::variant<NamedType, TypeArrow, TypeVariant, TypeStruct, TypeApplication, TypeVariable>;
-struct Type : TypeBase {
-  using TypeBase::variant;
-};
-
 struct Call;
 struct Case;
 struct Constructor;
 struct Lambda;
+struct TVLambda;
 
 struct EntityReference {
   EntityId id;
 };
 
-using ExprBase = std::variant<Call, Case, Constructor, Lambda, EntityReference>;
+using ExprBase = std::variant<Call, Case, Constructor, Lambda, TVLambda, EntityReference>;
 struct Expr;
 
 struct Call {
@@ -119,9 +77,21 @@ struct Binding {
   std::optional<TypeId> type;
 };
 
+struct TypeBinding {
+  std::string name;
+  // std::optional<Kind> kind;
+};
+
 struct Lambda {
   std::vector<EntityId> captures;
+  // TODO: rename to binding_id.
   EntityId parameter;
+  std::unique_ptr<Expr> body;
+};
+
+struct TVLambda {
+  // This is a TypeBinding
+  EntityId binding_id;
   std::unique_ptr<Expr> body;
 };
 
@@ -161,8 +131,10 @@ struct ModuleDefinition {
 };
 
 // Entities have names.
-using EntityBase = std::variant<ValueDefinition, TypeFormDefinition, ValueDeclaration,
-                                MergedValueDefinition, ModuleDefinition, Binding>;
+// TODO: Should bindings be entities? They don't behave like other entities because
+// they are never shallow.
+using EntityBase = std::variant<ValueDeclaration, ValueDefinition, MergedValueDefinition,
+                                TypeFormDefinition, ModuleDefinition, Binding, TypeBinding>;
 struct Entity : EntityBase {
   using EntityBase::variant;
 
@@ -174,6 +146,85 @@ struct Entity : EntityBase {
     return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
   }
 };
+
+namespace type {
+
+struct Arrow {
+  TypeId from_id;
+  TypeId to_id;
+};
+
+// This is indexed by De Bruijn indices to simplify merging.
+struct ForAll {
+  TypeId type_id;
+};
+
+struct DeBruijnIndex {
+  std::size_t value;
+};
+
+struct Element {
+  TagId tag_id;
+  TypeId type_id;
+};
+
+struct Variant {
+  // It is safe to assume that this is sorted by tag_id.
+  std::vector<Element> elements;
+};
+
+struct Struct {
+  // It is safe to assume that this is sorted by tag_id.
+  std::vector<Element> elements;
+};
+
+struct Application {
+  TypeId function_id;
+  TypeId argument_id;
+};
+
+// Each object represents a unique variable.
+struct Variable {};
+
+struct NamedReference {
+  // This must always be a TypeFormDefinition.
+  EntityId definition_id;
+};
+
+using UnnamedBase = std::variant<Arrow, ForAll, DeBruijnIndex, Variant, Struct, Application,
+                                 Variable, NamedReference>;
+struct Unnamed : UnnamedBase {
+  using UnnamedBase::variant;
+};
+
+struct Named {
+  Unnamed type;
+  // TODO: maybe unneded.
+  EntityId definition_id;
+};
+
+using TypeBase = std::variant<Unnamed, Named>;
+struct Type : TypeBase {
+  using TypeBase::variant;
+
+  std::optional<EntityId> definition_id() const {
+    struct Visitor {
+      std::optional<EntityId> operator()(Unnamed const &) { return std::nullopt; }
+      std::optional<EntityId> operator()(Named const &t) { return t.definition_id; }
+    };
+    return std::visit(Visitor{}, *this);
+  }
+
+  Unnamed const &unnamed_part() const {
+    struct Visitor {
+      Unnamed const &operator()(Unnamed const &t) { return t; }
+      Unnamed const &operator()(Named const &t) { return t.type; }
+    };
+    return std::visit(Visitor{}, *this);
+  }
+};
+
+} // namespace type
 
 } // namespace ast
 
