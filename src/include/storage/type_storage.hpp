@@ -120,6 +120,8 @@ struct TypeStorage {
     } else if (a_arr and b_arr) {
       // TODO: can you create a strong exception guarantee here?
       return merge(a_arr->from_id, b_arr->from_id) and merge(a_arr->to_id, b_arr->to_id);
+    } else if (a_forall and b_forall) {
+      return merge(a_forall->type_id, b_forall->type_id);
     } else if (a_forall) {
       auto id = instantiate(a_forall->type_id);
       return merge(id, b_rep_it->first);
