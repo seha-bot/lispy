@@ -99,7 +99,7 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
   auto rec_type_parser = [ctx] { return parsy::rec<ExprView>([ctx] { return type_parser(ctx); }); };
 
   auto name_defined = [ctx](raw_ast::Atom const &atom) { return !!ctx.lookup(atom.name); };
-  auto defined_name = [&] {
+  auto defined_name = [name_defined] {
     return atom_where(parsy::MeaningfulPredicate{
         .meaning = "a defined type name",
         .fn = name_defined,
@@ -122,35 +122,51 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
     }
   };
 
-  auto store = [ctx](ast::type::Type type) { return ctx.ts.store(std::move(type)); };
+  auto arrow_parser = seq(to<ast::type::Arrow>, rec_type_parser(), rec_type_parser());
 
-  auto arrow_parser = seq(to<ast::type::Arrow>, rec_type_parser(), rec_type_parser()) | store;
+  auto forall_parser = [ctx] -> Parser<ast::type::ForAll> {
+    // TODO: Factor this out because it's also used in expr_parser in 2 places.
+    auto to_binding = [ctx](ExprView name_view) {
+      auto &atom = name_view.head_as_atom();
+      auto binding_id = ctx.es.reserve_store(ast::TypeBinding{atom.name});
+      return std::make_pair(ctx.with_names({{std::move(atom.name), binding_id}}), binding_id);
+    };
 
-  auto variant_parser = [&] {
+    auto binding_parser = atom("a type binding name") | to_binding;
+
+    return std::move(binding_parser) >> [](std::pair<Context, ast::EntityId> p) {
+      auto [new_ctx, binding_id] = p;
+      new_ctx.push_type_binding(binding_id);
+      return type_parser(new_ctx) | to<ast::type::ForAll>;
+    };
+  }();
+
+  auto variant_parser = [ctx, rec_type_parser] -> Parser<ast::type::Variant> {
     auto element_parser = any(std::array{
         seq(to<ast::type::Element>, tag_parser(ctx), pure(ast::TypeId::unit_id)),
         list(seq(to<ast::type::Element>, tag_parser(ctx), rec_type_parser())),
     });
 
-    return many(std::move(element_parser)) |
-           [](std::vector<ast::type::Element> elements) {
-             std::ranges::sort(elements, {}, [](auto &e) { return e.tag_id; });
-             return elements;
-           } |
-           to<ast::type::Variant> | store;
+    return many(std::move(element_parser)) | [](std::vector<ast::type::Element> elements) {
+      std::ranges::sort(elements, {}, [](auto &e) { return e.tag_id; });
+      return elements;
+    } | to<ast::type::Variant>;
   }();
 
   // FIX: Sort elements by tag_id. There is common functionality in variant_parser,
   // so factor it out.
   auto struct_parser = many(list(seq(to<ast::type::Element>, tag_parser(ctx), rec_type_parser()))) |
-                       to<ast::type::Struct> | store;
+                       to<ast::type::Struct>;
+
+  auto store = [ctx](ast::type::Type type) { return ctx.ts.store(std::move(type)); };
 
   return any(std::array{
       defined_name() | lookup | store,
       list(any(std::array{
-          atom_exact("to") > std::move(arrow_parser),
-          atom_exact("variant") > std::move(variant_parser),
-          atom_exact("struct") > std::move(struct_parser),
+          atom_exact("to") > cut(std::move(arrow_parser)) | store,
+          atom_exact("forall") > cut(std::move(forall_parser)) | store,
+          atom_exact("variant") > cut(std::move(variant_parser)) | store,
+          atom_exact("struct") > cut(std::move(struct_parser)) | store,
           // atom_exact("tt-lambda") > std::move(tt_parser),
       })),
   });
@@ -186,7 +202,9 @@ Parser<ast::Case::Choice> case_choice_parser(Context ctx) noexcept {
 }
 
 Parser<ast::Expr> special_parser(Context ctx) noexcept {
-  auto lambda_parser = [ctx](ExprView) -> Parser<ast::Lambda> {
+  auto rec_expr_parser = [ctx] { return parsy::rec<ExprView>([ctx] { return expr_parser(ctx); }); };
+
+  auto lambda_parser = [ctx] -> Parser<ast::Lambda> {
     auto to_binding = [ctx](ExprView name_view, std::optional<ast::TypeId> type) {
       auto &atom = name_view.head_as_atom();
 
@@ -200,17 +218,17 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
         list(cut(seq(to_binding, atom("a binding name"), type_parser(ctx)))),
     });
 
-    return cut(std::move(binding_parser) >> [](std::pair<Context, ast::EntityId> p) {
+    return std::move(binding_parser) >> [](std::pair<Context, ast::EntityId> p) {
       auto [new_ctx, binding_id] = p;
       return expr_parser(new_ctx) | [new_ctx, binding_id](ast::Expr body) {
         std::vector<ast::EntityId> captures(new_ctx.captures().begin(), new_ctx.captures().end());
         return ast::Lambda{std::move(captures), binding_id,
                            std::make_unique<ast::Expr>(std::move(body))};
       };
-    });
-  };
+    };
+  }();
 
-  auto tv_lambda_parser = [ctx](ExprView) -> Parser<ast::TVLambda> {
+  auto tv_lambda_parser = [ctx] -> Parser<ast::TVLambda> {
     auto to_binding = [ctx](ExprView name_view) {
       auto &atom = name_view.head_as_atom();
 
@@ -220,36 +238,34 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
 
     auto binding_parser = atom("a type binding name") | to_binding;
 
-    return cut(std::move(binding_parser) >> [](std::pair<Context, ast::EntityId> p) {
+    return std::move(binding_parser) >> [](std::pair<Context, ast::EntityId> p) {
       auto [new_ctx, binding_id] = p;
       new_ctx.push_type_binding(binding_id);
       return expr_parser(new_ctx) | [new_ctx, binding_id](ast::Expr body) {
         return ast::TVLambda{binding_id, std::make_unique<ast::Expr>(std::move(body))};
       };
-    });
-  };
+    };
+  }();
 
-  auto case_parser = [ctx](ExprView) -> Parser<ast::Case> {
+  auto case_parser = [ctx, rec_expr_parser] -> Parser<ast::Case> {
     auto construct_case = [](ast::Expr scrutinee, std::vector<ast::Case::Choice> choices) {
       return ast::Case{std::make_unique<ast::Expr>(std::move(scrutinee)), std::move(choices)};
     };
+    return seq(construct_case, rec_expr_parser(), many(case_choice_parser(ctx)));
+  }();
 
-    return seq(construct_case, expr_parser(ctx), many(case_choice_parser(ctx)));
-  };
-
-  auto constructor_parser = [ctx](ast::TagId tag_id) -> Parser<ast::Constructor> {
+  auto constructor_parser = [ctx, rec_expr_parser](ast::TagId tag_id) -> Parser<ast::Constructor> {
     auto construct_tag = [tag_id](ast::TypeId type_id, std::optional<ast::Expr> argument) {
       auto allocate = [](ast::Expr expr) { return std::make_unique<ast::Expr>(std::move(expr)); };
       return ast::Constructor{tag_id, type_id, std::move(argument).transform(allocate)};
     };
-
-    return seq(construct_tag, type_parser(ctx), optional(expr_parser(ctx)));
+    return seq(construct_tag, type_parser(ctx), optional(rec_expr_parser()));
   };
 
   return any(std::array{
-      atom_exact("lambda") >> lambda_parser | to<ast::Expr>,
-      atom_exact("tv-lambda") >> tv_lambda_parser | to<ast::Expr>,
-      atom_exact("case") >> case_parser | to<ast::Expr>,
+      atom_exact("lambda") > cut(std::move(lambda_parser)) | to<ast::Expr>,
+      atom_exact("tv-lambda") > cut(std::move(tv_lambda_parser)) | to<ast::Expr>,
+      atom_exact("case") > cut(std::move(case_parser)) | to<ast::Expr>,
       tag_parser(ctx) >> constructor_parser | to<ast::Expr>,
   });
 }

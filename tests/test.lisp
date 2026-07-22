@@ -24,7 +24,7 @@
   (lambda (f (to Bool Bool))
     (f (:false Bool))))
 
-; (dec id (forall (X *) (to X X))
+(dec id (forall X (to X X)))
 (def id (tv-lambda A (lambda (x A) x)))
 ; (def id (lambda x x))
 
