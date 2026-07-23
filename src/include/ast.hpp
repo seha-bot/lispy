@@ -24,6 +24,7 @@ struct Tag {
 
 struct TagId {
   auto operator<=>(TagId const &) const = default;
+  // TODO: Rename to value.
   std::size_t id;
 };
 
@@ -36,17 +37,10 @@ struct TypeId {
 
 constexpr TypeId TypeId::unit_id = {.value = static_cast<std::size_t>(-1)};
 
-struct Call;
-struct Case;
-struct Variant;
-struct Lambda;
-struct TVLambda;
-
 struct EntityReference {
   EntityId id;
 };
 
-using ExprBase = std::variant<Call, Case, Variant, Lambda, TVLambda, EntityReference>;
 struct Expr;
 
 struct Call {
@@ -69,6 +63,16 @@ struct Case {
 struct Variant {
   TagId tag_id;
   std::optional<std::unique_ptr<Expr>> value;
+};
+
+// This looks a lot like Variant above. Hmmm...
+struct TaggedValue {
+  TagId tag_id;
+  std::unique_ptr<Expr> value;
+};
+
+struct Pack {
+  std::vector<TaggedValue> tagged_values;
 };
 
 struct Binding {
@@ -94,6 +98,7 @@ struct TVLambda {
   std::unique_ptr<Expr> body;
 };
 
+using ExprBase = std::variant<Call, Case, Variant, Pack, Lambda, TVLambda, EntityReference>;
 struct Expr : ExprBase {
   using ExprBase::variant;
 };
@@ -130,6 +135,12 @@ struct ModuleDefinition {
 };
 
 // Entities have names.
+// FIX: Entities need a stricter definition.
+// Look what your lies have allowed:
+// (def val
+//   (pack
+//     (:a Bool)
+//     (:b Bool)))
 // TODO: Should bindings be entities? They don't behave like other entities because
 // they are never shallow.
 using EntityBase = std::variant<ValueDeclaration, ValueDefinition, MergedValueDefinition,
@@ -168,11 +179,13 @@ struct Element {
 };
 
 struct Variant {
+  // FIX: DO NOT RELY ON THIS PLEASE!
   // It is safe to assume that this is sorted by tag_id.
   std::vector<Element> elements;
 };
 
 struct Struct {
+  // FIX: DO NOT RELY ON THIS PLEASE!
   // It is safe to assume that this is sorted by tag_id.
   std::vector<Element> elements;
 };

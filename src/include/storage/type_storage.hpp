@@ -75,7 +75,11 @@ struct TypeStorage {
   }
 
   ast::type::Type const &read(ast::TypeId id) const {
-    return m_types[m_rep.representative(id).value];
+    if (id.value == ast::TypeId::unit_id.value) {
+      static ast::type::Type unit{ast::type::Struct{}};
+      return unit;
+    }
+    return m_types.at(m_rep.representative(id).value);
   }
 
   std::string to_string(ast::TypeId id) const {
@@ -99,9 +103,9 @@ struct TypeStorage {
   //   todo();
   // }
 
-  /// If this returns false, then the entire TypeStorage is in an invalid state.
-  bool merge(std::function<ast::Entity const &(ast::EntityId)> const &es, ast::TypeId a_id,
-             ast::TypeId b_id) {
+  /// If this returns std::nullopt, then the entire TypeStorage is in an invalid state.
+  std::optional<ast::TypeId> merge(std::function<ast::Entity const &(ast::EntityId)> const &es,
+                                    ast::TypeId a_id, ast::TypeId b_id) {
     auto a_rep_it = m_rep.representative_iterator(a_id);
     auto b_rep_it = m_rep.representative_iterator(b_id);
     auto &a = m_types[a_rep_it->first.value];
@@ -116,18 +120,32 @@ struct TypeStorage {
     auto *b_named_ref = std::get_if<ast::type::NamedReference>(&b.unnamed_part());
 
     if (RepresentativeSets::Eq{}(a_rep_it->first, b_rep_it->first)) {
-      return true;
+      return a_rep_it->first;
     } else if (is_variable(a)) {
       m_rep.directional_merge_unchecked(a_rep_it, b_rep_it->first);
-      return true;
+      return b_rep_it->first;
     } else if (is_variable(b)) {
       m_rep.directional_merge_unchecked(b_rep_it, a_rep_it->first);
-      return true;
+      return a_rep_it->first;
     } else if (a_arr and b_arr) {
       // TODO: can you create a strong exception guarantee here?
-      return merge(es, a_arr->from_id, b_arr->from_id) and merge(es, a_arr->to_id, b_arr->to_id);
+      auto from_id = merge(es, a_arr->from_id, b_arr->from_id);
+      if (not from_id) {
+        return std::nullopt;
+      }
+      auto to_id = merge(es, a_arr->to_id, b_arr->to_id);
+      if (not to_id) {
+        return std::nullopt;
+      }
+      // TODO: Can you just return one of the input ids here?
+      return store(ast::type::Arrow{*from_id, *to_id});
     } else if (a_forall and b_forall) {
-      return merge(es, a_forall->type_id, b_forall->type_id);
+      auto type_id = merge(es, a_forall->type_id, b_forall->type_id);
+      if (not type_id) {
+        return std::nullopt;
+      }
+      // TODO: Can you just return one of the input ids here?
+      return store(ast::type::ForAll{*type_id});
     } else if (a_forall) {
       auto id = instantiate(a_forall->type_id);
       return merge(es, id, b_rep_it->first);
@@ -136,18 +154,30 @@ struct TypeStorage {
       return merge(es, a_rep_it->first, id);
     } else if (a_variant and b_variant) {
       if (a_variant->elements.size() < b_variant->elements.size()) {
-        return is_in(a_variant->elements, b_variant->elements);
+        if (is_in(a_variant->elements, b_variant->elements)) {
+          return b_rep_it->first;
+        } else {
+          return std::nullopt;
+        }
       } else {
-        return is_in(b_variant->elements, a_variant->elements);
+        if (is_in(b_variant->elements, a_variant->elements)) {
+          return a_rep_it->first;
+        } else {
+          return std::nullopt;
+        }
       }
     } else if (a_named_ref) {
       auto &def = std::get<ast::TypeFormDefinition>(es(a_named_ref->definition_id));
-      return merge(es, def.type, b_rep_it->first);
+      return merge(es, def.type, b_rep_it->first).transform([&](auto &&) {
+        return a_rep_it->first;
+      });
     } else if (b_named_ref) {
       auto &def = std::get<ast::TypeFormDefinition>(es(b_named_ref->definition_id));
-      return merge(es, a_rep_it->first, def.type);
+      return merge(es, a_rep_it->first, def.type).transform([&](auto &&) {
+        return b_rep_it->first;
+      });
     } else {
-      return false;
+      return std::nullopt;
     }
   }
 

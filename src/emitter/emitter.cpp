@@ -306,6 +306,7 @@ void compile_expr(Context &ctx, Subroutine &sub, ast::Expr const &expr) {
       //
       // sub.push<vm::Mnemonic::mkv>();
     }
+    void operator()(ast::Pack const &pack) { todo(); }
     void operator()(ast::Lambda const &lambda) {
       auto name = [&] {
         // This happens when you recursively visit a lambda

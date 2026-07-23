@@ -57,7 +57,7 @@ struct EntityStorage {
                      [](ast::Entity const &entity) -> std::string_view { return entity.name(); });
   }
 
-  std::vector<ast::Entity> produce() {
+  std::pair<std::vector<ast::Entity>, std::vector<ast::Tag>> produce() {
     std::vector<ast::Entity> entities;
     entities.reserve(m_entities.size());
     for (auto &entity : m_entities) {
@@ -66,7 +66,13 @@ struct EntityStorage {
       }
       entities.push_back(*std::move(entity));
     }
-    return entities;
+
+    std::vector<ast::Tag> tags(m_tags.size());
+    for (auto &[tag, tag_id] : m_tags) {
+      tags[tag_id.id] = std::move(tag);
+    }
+
+    return {std::move(entities), std::move(tags)};
   }
 
   ast::TagId get_tag(std::string name) {

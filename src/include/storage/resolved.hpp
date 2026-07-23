@@ -10,6 +10,7 @@ struct ResolvedAST {
   ast::ModuleDefinition global_module;
   std::unique_ptr<TypeStorage> ts;
   std::vector<ast::Entity> entities;
+  std::vector<ast::Tag> tags;
 };
 
 } // namespace storage

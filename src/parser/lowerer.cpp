@@ -26,6 +26,8 @@ namespace {
 template <typename T>
 auto const to = []<typename... Ts>(Ts &&...args) { return T(std::forward<Ts>(args)...); };
 
+auto const alloc = []<typename T>(T val) { return std::make_unique<T>(std::move(val)); };
+
 namespace raw {
 
 template <typename A> using Parser = parsy::Parsy<ExprView, A>;
@@ -248,16 +250,19 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
   }();
 
   auto case_parser = [ctx, rec_expr_parser] -> Parser<ast::Case> {
-    auto construct_case = [](ast::Expr scrutinee, std::vector<ast::Case::Choice> choices) {
-      return ast::Case{std::make_unique<ast::Expr>(std::move(scrutinee)), std::move(choices)};
-    };
-    return seq(construct_case, rec_expr_parser(), many(case_choice_parser(ctx)));
+    return seq(to<ast::Case>, rec_expr_parser() | alloc, many(case_choice_parser(ctx)));
+  }();
+
+  auto pack_parser = [ctx, rec_expr_parser] -> Parser<ast::Pack> {
+    return many(list(seq(to<ast::TaggedValue>, tag_parser(ctx), rec_expr_parser() | alloc))) |
+           to<ast::Pack>;
   }();
 
   return any(std::array{
       atom_exact("lambda") > cut(std::move(lambda_parser)) | to<ast::Expr>,
       atom_exact("tv-lambda") > cut(std::move(tv_lambda_parser)) | to<ast::Expr>,
       atom_exact("case") > cut(std::move(case_parser)) | to<ast::Expr>,
+      atom_exact("pack") > cut(std::move(pack_parser)) | to<ast::Expr>,
   });
 }
 
@@ -285,11 +290,8 @@ Parser<ast::Expr> expr_parser(Context ctx) noexcept {
 
   auto name_lookup = [=] { return defined_name() | to_entity_reference; };
 
-  auto call_parser = [ctx](ast::Expr callee) -> Parser<ast::Expr> {
-    auto to_call = [](ast::Expr callee, std::vector<ast::Expr> arguments) -> ast::Expr {
-      return ast::Call{std::make_unique<ast::Expr>(std::move(callee)), std::move(arguments)};
-    };
-    return seq(to_call, pure_once(std::move(callee)), cut(some(expr_parser(ctx))));
+  auto call_parser = [ctx](ast::Expr callee) -> Parser<ast::Call> {
+    return seq(to<ast::Call>, pure_once(alloc(std::move(callee))), cut(some(expr_parser(ctx))));
   };
 
   return any(std::array{
@@ -298,17 +300,10 @@ Parser<ast::Expr> expr_parser(Context ctx) noexcept {
         return ast::Variant{.tag_id = tag_id, .value = std::nullopt};
       },
       list(cut(any(std::array{
-          name_lookup() >> call_parser,
-          seq(
-              [](ast::TagId tag_id, ast::Expr expr) -> ast::Expr {
-                return ast::Variant{
-                    .tag_id = tag_id,
-                    .value = std::make_unique<ast::Expr>(std::move(expr)),
-                };
-              },
-              tag_parser(ctx), rec_expr_parser()),
+          name_lookup() >> call_parser | to<ast::Expr>,
+          seq(to<ast::Variant>, tag_parser(ctx), rec_expr_parser() | alloc) | to<ast::Expr>,
           special_parser(ctx),
-          list(cut(rec_expr_parser())) >> call_parser,
+          list(cut(rec_expr_parser())) >> call_parser | to<ast::Expr>,
       }))),
   });
 }
@@ -485,7 +480,9 @@ lower_ast(std::string filename, std::vector<raw_ast::Expr> ast) noexcept {
   if (not module_definition) {
     return std::unexpected(module_definition.error());
   }
-  return storage::ResolvedAST{*std::move(module_definition), std::move(ts), storage.produce()};
+  auto [e, t] = storage.produce();
+  return storage::ResolvedAST{*std::move(module_definition), std::move(ts), std::move(e),
+                              std::move(t)};
 }
 
 } // namespace parser

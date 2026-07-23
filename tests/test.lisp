@@ -28,6 +28,20 @@
 (def id (tv-lambda _ (lambda x x)))
 ; (def id (lambda x x))
 
+(dec prepend (to Bool (to List List)))
+(def prepend
+  (lambda (x Bool)
+    (lambda (xs List)
+      (:cons
+        (pack
+          (:head x)
+          (:tail xs))))))
+
+(def val
+  (pack
+    (:a :true)
+    (:b :false)))
+
 (def do-stuff
   (with-false id))
 

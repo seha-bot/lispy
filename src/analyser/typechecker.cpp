@@ -29,9 +29,11 @@ struct Env {
 struct Context {
   storage::TypeStorage &ts;
   std::vector<ast::Entity> const &entities;
+  std::vector<ast::Tag> const &tags;
   Env env;
 
   ast::Entity const &entity(ast::EntityId e) const { return entities[e.value]; }
+  ast::Tag const &tag(ast::TagId e) const { return tags[e.id]; }
 
   auto fun() const {
     return [this](ast::EntityId id) -> ast::Entity const & { return entity(id); };
@@ -41,11 +43,26 @@ struct Context {
     if (auto a = std::get_if<ast::type::NamedReference>(&ts.read(t).unnamed_part())) {
       return entity(a->definition_id).name();
     } else if (auto b = std::get_if<ast::type::Arrow>(&ts.read(t).unnamed_part())) {
-      return "(" + type_name(b->from_id) + ") -> (" + type_name(b->to_id) + ")";
+      return "(" + type_name(b->from_id) + ") -> " + type_name(b->to_id);
     } else if (auto c = std::get_if<ast::type::ForAll>(&ts.read(t).unnamed_part())) {
       return "\\." + type_name(c->type_id);
     } else if (auto d = std::get_if<ast::type::DeBruijnIndex>(&ts.read(t).unnamed_part())) {
       return std::to_string(d->value);
+    } else if (auto s = std::get_if<ast::type::Struct>(&ts.read(t).unnamed_part())) {
+      if (s->elements.empty()) {
+        return "{}";
+      }
+      std::string str = "{";
+      for (auto &[tag_id, type_id] : s->elements) {
+        str += " " + tag(tag_id).name.substr(1) + ": " + type_name(type_id) + ";";
+      }
+      return str + " }";
+    } else if (auto v = std::get_if<ast::type::Variant>(&ts.read(t).unnamed_part())) {
+      std::string str = "[";
+      for (auto &[tag_id, type_id] : v->elements) {
+        str += " " + tag(tag_id).name.substr(1) + ": " + type_name(type_id) + ";";
+      }
+      return str + " ]";
     }
     return "#" + ts.to_string(t);
   }
@@ -101,12 +118,11 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
         callee_type_calculated = ctx.ts.store(ast::type::Arrow{*arg_type, callee_type_calculated});
       }
 
-      bool const did_merge = ctx.ts.merge(ctx.fun(), *callee_type, callee_type_calculated);
-      if (not did_merge) {
+      auto const merged_type_id = ctx.ts.merge(ctx.fun(), *callee_type, callee_type_calculated);
+      if (not merged_type_id) {
         todo();
       }
-
-      return return_type;
+      return *merged_type_id;
     }
     std::expected<ast::TypeId, Error> operator()(ast::Case const &case_) {
       auto scrutinee_type = get_type(ctx, *case_.scrutinee);
@@ -125,10 +141,11 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
         }
 
         if (common_arm_type) {
-          bool const did_merge = ctx.ts.merge(ctx.fun(), *common_arm_type, *arm_type);
-          if (not did_merge) {
+          auto const merged_type_id = ctx.ts.merge(ctx.fun(), *common_arm_type, *arm_type);
+          if (not merged_type_id) {
             todo();
           }
+          common_arm_type = *merged_type_id;
         } else {
           common_arm_type = *arm_type;
         }
@@ -155,6 +172,23 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
             .type_id = ast::TypeId::unit_id,
         }}});
       }
+    }
+    std::expected<ast::TypeId, Error> operator()(ast::Pack const &pack) {
+      std::vector<ast::type::Element> elements;
+      for (auto &[tag_id, value] : pack.tagged_values) {
+        auto type_id = get_type(ctx, *value);
+        if (not type_id) {
+          todo();
+        }
+
+        elements.push_back({
+            .tag_id = tag_id,
+            .type_id = *type_id,
+        });
+      }
+
+      std::ranges::sort(elements, {}, [](auto &e) { return e.tag_id; });
+      return ctx.ts.store(ast::type::Struct{std::move(elements)});
     }
     std::expected<ast::TypeId, Error> operator()(ast::Lambda const &lambda) {
       auto binding_type = get_entity_type(ctx, lambda.parameter);
@@ -202,12 +236,11 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
     todo();
   }
 
-  bool const did_merge = ctx.ts.merge(ctx.fun(), iter->second, *type);
-  if (not did_merge) {
+  auto const merged_type_id = ctx.ts.merge(ctx.fun(), iter->second, *type);
+  if (not merged_type_id) {
     todo();
   }
-
-  return *type;
+  return *merged_type_id;
 }
 
 std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId entity_id) noexcept {
@@ -227,12 +260,11 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
         todo();
       }
 
-      bool const did_merge = ctx.ts.merge(ctx.fun(), v.type_signature, *type);
-      if (not did_merge) {
+      auto const merged_type_id = ctx.ts.merge(ctx.fun(), v.type_signature, *type);
+      if (not merged_type_id) {
         todo();
       }
-
-      return *type;
+      return *merged_type_id;
     }
     std::expected<ast::TypeId, Error> operator()(ast::ModuleDefinition const &) { todo(); }
     std::expected<ast::TypeId, Error> operator()(ast::Binding const &binding) {
@@ -260,18 +292,17 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
     todo();
   }
 
-  bool const did_merge = ctx.ts.merge(ctx.fun(), entity_type, *type);
-  if (not did_merge) {
+  auto const merged_type_id = ctx.ts.merge(ctx.fun(), entity_type, *type);
+  if (not merged_type_id) {
     todo();
   }
-
-  return *type;
+  return *merged_type_id;
 }
 
 } // namespace
 
 std::expected<storage::TypeEnv, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
-  Context ctx{*ast.ts, ast.entities, {}};
+  Context ctx{*ast.ts, ast.entities, ast.tags, {}};
   std::vector<ast::TypeId> type_ids;
   for (std::size_t i = 0; i < ast.entities.size(); ++i) {
     auto res = get_entity_type(ctx, ast::EntityId{i});
