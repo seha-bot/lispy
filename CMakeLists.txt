@@ -9,7 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # enable sanitizers for all targets
-add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g -O0)
 add_link_options(-fsanitize=address,undefined)
 
 add_subdirectory(src)
