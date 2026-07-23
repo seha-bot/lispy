@@ -122,7 +122,7 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
       if (not merged_type_id) {
         todo();
       }
-      return *merged_type_id;
+      return return_type;
     }
     std::expected<ast::TypeId, Error> operator()(ast::Case const &case_) {
       auto scrutinee_type = get_type(ctx, *case_.scrutinee);
