@@ -38,7 +38,7 @@ constexpr TypeId TypeId::unit_id = {.value = static_cast<std::size_t>(-1)};
 
 struct Call;
 struct Case;
-struct Constructor;
+struct Variant;
 struct Lambda;
 struct TVLambda;
 
@@ -46,7 +46,7 @@ struct EntityReference {
   EntityId id;
 };
 
-using ExprBase = std::variant<Call, Case, Constructor, Lambda, TVLambda, EntityReference>;
+using ExprBase = std::variant<Call, Case, Variant, Lambda, TVLambda, EntityReference>;
 struct Expr;
 
 struct Call {
@@ -66,10 +66,9 @@ struct Case {
   std::vector<Choice> choices;
 };
 
-struct Constructor {
-  TagId tag;
-  TypeId type;
-  std::optional<std::unique_ptr<Expr>> argument;
+struct Variant {
+  TagId tag_id;
+  std::optional<std::unique_ptr<Expr>> value;
 };
 
 struct Binding {

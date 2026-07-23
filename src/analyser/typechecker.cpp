@@ -33,6 +33,10 @@ struct Context {
 
   ast::Entity const &entity(ast::EntityId e) const { return entities[e.value]; }
 
+  auto fun() const {
+    return [this](ast::EntityId id) -> ast::Entity const & { return entity(id); };
+  }
+
   std::string type_name(ast::TypeId t) const {
     if (auto a = std::get_if<ast::type::NamedReference>(&ts.read(t).unnamed_part())) {
       return entity(a->definition_id).name();
@@ -97,7 +101,7 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
         callee_type_calculated = ctx.ts.store(ast::type::Arrow{*arg_type, callee_type_calculated});
       }
 
-      bool const did_merge = ctx.ts.merge(*callee_type, callee_type_calculated);
+      bool const did_merge = ctx.ts.merge(ctx.fun(), *callee_type, callee_type_calculated);
       if (not did_merge) {
         todo();
       }
@@ -121,7 +125,7 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
         }
 
         if (common_arm_type) {
-          bool const did_merge = ctx.ts.merge(*common_arm_type, *arm_type);
+          bool const did_merge = ctx.ts.merge(ctx.fun(), *common_arm_type, *arm_type);
           if (not did_merge) {
             todo();
           }
@@ -135,9 +139,22 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
       }
       return *common_arm_type;
     }
-    std::expected<ast::TypeId, Error> operator()(ast::Constructor const &lcall) {
-      // TODO: this will not evaluate the argument.
-      return lcall.type;
+    std::expected<ast::TypeId, Error> operator()(ast::Variant const &variant) {
+      if (variant.value) {
+        auto value_type = get_type(ctx, **variant.value);
+        if (not value_type) {
+          todo();
+        }
+        return ctx.ts.store(ast::type::Variant{std::vector{ast::type::Element{
+            .tag_id = variant.tag_id,
+            .type_id = *value_type,
+        }}});
+      } else {
+        return ctx.ts.store(ast::type::Variant{std::vector{ast::type::Element{
+            .tag_id = variant.tag_id,
+            .type_id = ast::TypeId::unit_id,
+        }}});
+      }
     }
     std::expected<ast::TypeId, Error> operator()(ast::Lambda const &lambda) {
       auto binding_type = get_entity_type(ctx, lambda.parameter);
@@ -185,7 +202,7 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::Expr const &expr) 
     todo();
   }
 
-  bool const did_merge = ctx.ts.merge(iter->second, *type);
+  bool const did_merge = ctx.ts.merge(ctx.fun(), iter->second, *type);
   if (not did_merge) {
     todo();
   }
@@ -210,7 +227,7 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
         todo();
       }
 
-      bool const did_merge = ctx.ts.merge(v.type_signature, *type);
+      bool const did_merge = ctx.ts.merge(ctx.fun(), v.type_signature, *type);
       if (not did_merge) {
         todo();
       }
@@ -243,7 +260,7 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, ast::EntityId en
     todo();
   }
 
-  bool const did_merge = ctx.ts.merge(entity_type, *type);
+  bool const did_merge = ctx.ts.merge(ctx.fun(), entity_type, *type);
   if (not did_merge) {
     todo();
   }

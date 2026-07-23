@@ -2,6 +2,7 @@
 #define TYPE_STORAGE_HPP
 
 #include <algorithm>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -99,7 +100,8 @@ struct TypeStorage {
   // }
 
   /// If this returns false, then the entire TypeStorage is in an invalid state.
-  bool merge(ast::TypeId a_id, ast::TypeId b_id) {
+  bool merge(std::function<ast::Entity const &(ast::EntityId)> const &es, ast::TypeId a_id,
+             ast::TypeId b_id) {
     auto a_rep_it = m_rep.representative_iterator(a_id);
     auto b_rep_it = m_rep.representative_iterator(b_id);
     auto &a = m_types[a_rep_it->first.value];
@@ -108,6 +110,10 @@ struct TypeStorage {
     auto *b_arr = std::get_if<ast::type::Arrow>(&b.unnamed_part());
     auto *a_forall = std::get_if<ast::type::ForAll>(&a.unnamed_part());
     auto *b_forall = std::get_if<ast::type::ForAll>(&b.unnamed_part());
+    auto *a_variant = std::get_if<ast::type::Variant>(&a.unnamed_part());
+    auto *b_variant = std::get_if<ast::type::Variant>(&b.unnamed_part());
+    auto *a_named_ref = std::get_if<ast::type::NamedReference>(&a.unnamed_part());
+    auto *b_named_ref = std::get_if<ast::type::NamedReference>(&b.unnamed_part());
 
     if (RepresentativeSets::Eq{}(a_rep_it->first, b_rep_it->first)) {
       return true;
@@ -119,18 +125,39 @@ struct TypeStorage {
       return true;
     } else if (a_arr and b_arr) {
       // TODO: can you create a strong exception guarantee here?
-      return merge(a_arr->from_id, b_arr->from_id) and merge(a_arr->to_id, b_arr->to_id);
+      return merge(es, a_arr->from_id, b_arr->from_id) and merge(es, a_arr->to_id, b_arr->to_id);
     } else if (a_forall and b_forall) {
-      return merge(a_forall->type_id, b_forall->type_id);
+      return merge(es, a_forall->type_id, b_forall->type_id);
     } else if (a_forall) {
       auto id = instantiate(a_forall->type_id);
-      return merge(id, b_rep_it->first);
+      return merge(es, id, b_rep_it->first);
     } else if (b_forall) {
       auto id = instantiate(b_forall->type_id);
-      return merge(a_rep_it->first, id);
+      return merge(es, a_rep_it->first, id);
+    } else if (a_variant and b_variant) {
+      if (a_variant->elements.size() < b_variant->elements.size()) {
+        return is_in(a_variant->elements, b_variant->elements);
+      } else {
+        return is_in(b_variant->elements, a_variant->elements);
+      }
+    } else if (a_named_ref) {
+      auto &def = std::get<ast::TypeFormDefinition>(es(a_named_ref->definition_id));
+      return merge(es, def.type, b_rep_it->first);
+    } else if (b_named_ref) {
+      auto &def = std::get<ast::TypeFormDefinition>(es(b_named_ref->definition_id));
+      return merge(es, a_rep_it->first, def.type);
     } else {
       return false;
     }
+  }
+
+  bool is_in(std::vector<ast::type::Element> const &a,
+             std::vector<ast::type::Element> const &b) const {
+    return std::ranges::all_of(a, [&](auto &e1) {
+      return std::ranges::any_of(b, [&](auto &e2) {
+        return e1.tag_id == e2.tag_id and m_rep.equal(e1.type_id, e2.type_id);
+      });
+    });
   }
 
   ast::TypeId instantiate_impl(ast::TypeId type_id, ast::TypeId variable_id, std::size_t depth) {

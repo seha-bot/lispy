@@ -22,7 +22,7 @@
 
 (def with-false
   (lambda (f (to Bool Bool))
-    (f (:false Bool))))
+    (f :false)))
 
 (dec id (forall X (to X X)))
 (def id (tv-lambda _ (lambda x x)))

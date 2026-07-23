@@ -254,19 +254,10 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
     return seq(construct_case, rec_expr_parser(), many(case_choice_parser(ctx)));
   }();
 
-  auto constructor_parser = [ctx, rec_expr_parser](ast::TagId tag_id) -> Parser<ast::Constructor> {
-    auto construct_tag = [tag_id](ast::TypeId type_id, std::optional<ast::Expr> argument) {
-      auto allocate = [](ast::Expr expr) { return std::make_unique<ast::Expr>(std::move(expr)); };
-      return ast::Constructor{tag_id, type_id, std::move(argument).transform(allocate)};
-    };
-    return seq(construct_tag, type_parser(ctx), optional(rec_expr_parser()));
-  };
-
   return any(std::array{
       atom_exact("lambda") > cut(std::move(lambda_parser)) | to<ast::Expr>,
       atom_exact("tv-lambda") > cut(std::move(tv_lambda_parser)) | to<ast::Expr>,
       atom_exact("case") > cut(std::move(case_parser)) | to<ast::Expr>,
-      tag_parser(ctx) >> constructor_parser | to<ast::Expr>,
   });
 }
 
@@ -287,6 +278,7 @@ Parser<ast::Expr> expr_parser(Context ctx) noexcept {
     if (not entity_id) {
       todo();
     }
+    // TODO: do this only if entity_id is a binding.
     Context(ctx).capture(*entity_id);
     return ast::EntityReference(*entity_id);
   };
@@ -302,8 +294,19 @@ Parser<ast::Expr> expr_parser(Context ctx) noexcept {
 
   return any(std::array{
       name_lookup(),
+      tag_parser(ctx) | [](ast::TagId tag_id) -> ast::Expr {
+        return ast::Variant{.tag_id = tag_id, .value = std::nullopt};
+      },
       list(cut(any(std::array{
           name_lookup() >> call_parser,
+          seq(
+              [](ast::TagId tag_id, ast::Expr expr) -> ast::Expr {
+                return ast::Variant{
+                    .tag_id = tag_id,
+                    .value = std::make_unique<ast::Expr>(std::move(expr)),
+                };
+              },
+              tag_parser(ctx), rec_expr_parser()),
           special_parser(ctx),
           list(cut(rec_expr_parser())) >> call_parser,
       }))),

@@ -293,17 +293,18 @@ void compile_expr(Context &ctx, Subroutine &sub, ast::Expr const &expr) {
       }
       sub.push_label(std::move(end_label));
     }
-    void operator()(ast::Constructor const &label_call) {
-      if (label_call.argument) {
-        compile_expr(ctx, sub, **label_call.argument);
-      } else {
-        sub.push<vm::Mnemonic::push>(vm::Byte::underlying(0));
-      }
-
-      std::size_t discriminator_id = ctx.discriminator_index(label_call.type, label_call.tag);
-      sub.push<vm::Mnemonic::push>(discriminator_id);
-
-      sub.push<vm::Mnemonic::mkv>();
+    void operator()(ast::Variant const &variant) {
+      todo();
+      // if (label_call.argument) {
+      //   compile_expr(ctx, sub, **label_call.argument);
+      // } else {
+      //   sub.push<vm::Mnemonic::push>(vm::Byte::underlying(0));
+      // }
+      //
+      // std::size_t discriminator_id = ctx.discriminator_index(label_call.type, label_call.tag);
+      // sub.push<vm::Mnemonic::push>(discriminator_id);
+      //
+      // sub.push<vm::Mnemonic::mkv>();
     }
     void operator()(ast::Lambda const &lambda) {
       auto name = [&] {
