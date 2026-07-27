@@ -518,8 +518,8 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
 std::expected<storage::ResolvedAST, parsy::ParseError<ExprView>>
 lower_ast(std::string filename, std::vector<raw_ast::Expr> ast) noexcept {
   auto ts = std::make_unique<storage::TypeStorage>();
-  storage::EntityStorage es;
-  storage::TagStorage tags;
+  EntityStorage es;
+  TagStorage tags;
   auto module_definition = shallow::lower_entity(
       Context(*ts, es, tags),
       shallow_ast::ShallowModuleDefinition{
