@@ -2,7 +2,6 @@
 #define TYPE_STORAGE_HPP
 
 #include <algorithm>
-#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -11,6 +10,21 @@
 
 #include "ast.hpp"
 #include "todo.hpp"
+
+namespace constraint {
+
+struct SubtypeOf {
+  // a <= b
+  ast::TypeId a_id, b_id;
+};
+
+using ConstraintBase = std::variant<SubtypeOf>;
+
+struct Constraint : ConstraintBase {
+  using ConstraintBase::variant;
+};
+
+} // namespace constraint
 
 namespace storage {
 
@@ -54,8 +68,11 @@ struct RepresentativeSets {
 
 struct TypeStorage {
   TypeStorage() = default;
+  TypeStorage(TypeStorage const &) = delete;
+  TypeStorage &operator=(TypeStorage const &) = delete;
   TypeStorage(TypeStorage &&) = delete;
   TypeStorage &operator=(TypeStorage &&) = delete;
+  ~TypeStorage() = default;
 
   ast::TypeId make_variable() {
     ast::TypeId id{m_types.size()};
@@ -76,7 +93,7 @@ struct TypeStorage {
 
   ast::type::Type const &read(ast::TypeId id) const {
     if (id.value == ast::TypeId::unit_id.value) {
-      static ast::type::Type unit{ast::type::Struct{}};
+      static ast::type::Type const unit{ast::type::Struct{}};
       return unit;
     }
     return m_types.at(m_rep.representative(id).value);
@@ -86,100 +103,32 @@ struct TypeStorage {
     return std::to_string(m_rep.representative(id).value);
   }
 
-  // TODO: remove if unused.
-  // std::vector<ast::TypeVariant::Element> const &
-  // get_variant_elements(std::vector<ast::Entity> const &entities, ast::TypeId id) const {
-  //   if (auto *variant = std::get_if<ast::TypeVariant>(&read(id))) {
-  //     return variant->elements;
-  //   }
-  //   if (auto *type = std::get_if<ast::NamedType>(&read(id))) {
-  //     auto &ent = entities[type->definition.value];
-  //     if (auto *def = std::get_if<ast::TypeFormDefinition>(&ent)) {
-  //       return get_variant_elements(entities, def->type);
-  //     } else {
-  //       todo();
-  //     }
-  //   }
-  //   todo();
-  // }
-
-  /// If this returns std::nullopt, then the entire TypeStorage is in an invalid state.
-  std::optional<ast::TypeId> merge(std::function<ast::Entity const &(ast::EntityId)> const &es,
-                                    ast::TypeId a_id, ast::TypeId b_id) {
+  /// If this returns false, then the entire TypeStorage is in an invalid state.
+  bool merge_(ast::TypeId a_id, ast::TypeId b_id) {
     auto a_rep_it = m_rep.representative_iterator(a_id);
     auto b_rep_it = m_rep.representative_iterator(b_id);
     auto &a = m_types[a_rep_it->first.value];
     auto &b = m_types[b_rep_it->first.value];
     auto *a_arr = std::get_if<ast::type::Arrow>(&a.unnamed_part());
     auto *b_arr = std::get_if<ast::type::Arrow>(&b.unnamed_part());
-    auto *a_forall = std::get_if<ast::type::ForAll>(&a.unnamed_part());
-    auto *b_forall = std::get_if<ast::type::ForAll>(&b.unnamed_part());
-    auto *a_variant = std::get_if<ast::type::Variant>(&a.unnamed_part());
-    auto *b_variant = std::get_if<ast::type::Variant>(&b.unnamed_part());
-    auto *a_named_ref = std::get_if<ast::type::NamedReference>(&a.unnamed_part());
-    auto *b_named_ref = std::get_if<ast::type::NamedReference>(&b.unnamed_part());
 
     if (RepresentativeSets::Eq{}(a_rep_it->first, b_rep_it->first)) {
-      return a_rep_it->first;
+      return true;
     } else if (is_variable(a)) {
       m_rep.directional_merge_unchecked(a_rep_it, b_rep_it->first);
-      return b_rep_it->first;
+      return true;
     } else if (is_variable(b)) {
       m_rep.directional_merge_unchecked(b_rep_it, a_rep_it->first);
-      return a_rep_it->first;
+      return true;
     } else if (a_arr and b_arr) {
       // TODO: can you create a strong exception guarantee here?
-      auto from_id = merge(es, a_arr->from_id, b_arr->from_id);
-      if (not from_id) {
-        return std::nullopt;
-      }
-      auto to_id = merge(es, a_arr->to_id, b_arr->to_id);
-      if (not to_id) {
-        return std::nullopt;
-      }
-      // TODO: Can you just return one of the input ids here?
-      return store(ast::type::Arrow{*from_id, *to_id});
-    } else if (a_forall and b_forall) {
-      auto type_id = merge(es, a_forall->type_id, b_forall->type_id);
-      if (not type_id) {
-        return std::nullopt;
-      }
-      // TODO: Can you just return one of the input ids here?
-      return store(ast::type::ForAll{*type_id});
-    } else if (a_forall) {
-      auto id = instantiate(a_forall->type_id);
-      return merge(es, id, b_rep_it->first);
-    } else if (b_forall) {
-      auto id = instantiate(b_forall->type_id);
-      return merge(es, a_rep_it->first, id);
-    } else if (a_variant and b_variant) {
-      if (a_variant->elements.size() < b_variant->elements.size()) {
-        if (is_in(a_variant->elements, b_variant->elements)) {
-          return b_rep_it->first;
-        } else {
-          return std::nullopt;
-        }
-      } else {
-        if (is_in(b_variant->elements, a_variant->elements)) {
-          return a_rep_it->first;
-        } else {
-          return std::nullopt;
-        }
-      }
-    } else if (a_named_ref) {
-      auto &def = std::get<ast::TypeFormDefinition>(es(a_named_ref->definition_id));
-      return merge(es, def.type, b_rep_it->first).transform([&](auto &&) {
-        return a_rep_it->first;
-      });
-    } else if (b_named_ref) {
-      auto &def = std::get<ast::TypeFormDefinition>(es(b_named_ref->definition_id));
-      return merge(es, a_rep_it->first, def.type).transform([&](auto &&) {
-        return b_rep_it->first;
-      });
+      return merge_(a_arr->from_id, b_arr->from_id) and merge_(a_arr->to_id, b_arr->to_id);
     } else {
-      return std::nullopt;
+      return false;
     }
   }
+
+  void add_constraint(constraint::Constraint) { todo(); }
 
   bool is_in(std::vector<ast::type::Element> const &a,
              std::vector<ast::type::Element> const &b) const {
@@ -213,7 +162,7 @@ struct TypeStorage {
         });
       }
       ast::TypeId operator()(ast::type::Variable const &) { return type_id; }
-      ast::TypeId operator()(ast::type::NamedReference const &) { return type_id; }
+      ast::TypeId operator()(ast::type::NamedTypeReference const &) { return type_id; }
 
       TypeStorage &self;
       ast::TypeId type_id;
@@ -227,28 +176,7 @@ struct TypeStorage {
     return instantiate_impl(type_id, make_variable(), 0);
   }
 
-  // bool has_uninferred_types() const {
-  //   return !std::ranges::all_of(m_types, [&](auto &t) { return is_inferred(t); });
-  // }
-
 private:
-  // bool is_inferred(ast::type::Type const &type) const {
-  //   struct Visitor {
-  //     bool operator()(ast::type::Arrow const &t) {
-  //       return self.is_inferred(self.read(t.from_id)) and self.is_inferred(self.read(t.to_id));
-  //     }
-  //     bool operator()(ast::type::Variant const &) { todo(); }
-  //     bool operator()(ast::type::Struct const &) { todo(); }
-  //     bool operator()(ast::type::TTLambda const &) { todo(); }
-  //     bool operator()(ast::type::Application const &) { todo(); }
-  //     bool operator()(ast::type::Variable const &) { todo(); }
-  //     bool operator()(ast::type::NamedReference const &) { return true; }
-  //
-  //     TypeStorage const &self;
-  //   };
-  //   return std::visit(Visitor{*this}, type.unnamed_part());
-  // }
-
   bool is_variable(ast::type::Type const &type) const {
     return std::holds_alternative<ast::type::Variable>(type.unnamed_part());
   }
@@ -278,7 +206,8 @@ private:
     bool operator()(ast::type::Application const &a, ast::type::Application const &b) {
       return rep.equal(a.function_id, b.function_id) and rep.equal(a.argument_id, b.argument_id);
     }
-    bool operator()(ast::type::NamedReference const &a, ast::type::NamedReference const &b) {
+    bool operator()(ast::type::NamedTypeReference const &a,
+                    ast::type::NamedTypeReference const &b) {
       return a.definition_id == b.definition_id;
     }
 
@@ -290,13 +219,13 @@ private:
     bool operator()(ast::type::Struct const &, auto &) { return false; }
     bool operator()(ast::type::Application const &, auto &) { return false; }
     bool operator()(ast::type::Variable const &, auto &) { return false; }
-    bool operator()(ast::type::NamedReference const &, auto &) { return false; }
+    bool operator()(ast::type::NamedTypeReference const &, auto &) { return false; }
 
     RepresentativeSets &rep;
   };
 
   bool equal(ast::type::Type const &a, ast::type::Type const &b) const {
-    return a.definition_id() == b.definition_id() and
+    return a.definition() == b.definition() and
            std::visit(EqualVisitor{m_rep}, a.unnamed_part(), b.unnamed_part());
   }
 
@@ -305,7 +234,7 @@ private:
 };
 
 struct TypeEnv {
-  std::unordered_map<ast::Expr const *, ast::TypeId> type_of;
+  std::unordered_map<ast::expr::Expr const *, ast::TypeId> type_of;
 };
 
 } // namespace storage

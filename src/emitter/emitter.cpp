@@ -173,7 +173,7 @@ struct Code {
     lambda_subroutines[&lambda] = subroutines.size();
 
     auto stack_header = lambda.captures;
-    stack_header.push_back(lambda.parameter);
+    stack_header.push_back(lambda.binding);
     subroutines.push_back(std::make_unique<Subroutine>("lambda" + std::to_string(lambda_cnt++),
                                                        std::move(stack_header)));
     return *subroutines.back();
@@ -226,7 +226,7 @@ struct Context {
     auto &r = ast.ts->read(type_id);
     if (auto *variant = std::get_if<ast::type::Variant>(&r.unnamed_part())) {
       return *variant;
-    } else if (auto *named_reference = std::get_if<ast::type::NamedReference>(&r.unnamed_part())) {
+    } else if (auto *named_reference = std::get_if<ast::type::NamedTypeReference>(&r.unnamed_part())) {
       auto &def = std::get<ast::TypeFormDefinition>(entity(named_reference->definition_id));
       return get_variant(def.type);
     }
@@ -256,7 +256,7 @@ void compile_entity(Context &ctx, Subroutine &sub, ast::EntityId entity_id);
 
 void compile_expr(Context &ctx, Subroutine &sub, ast::Expr const &expr) {
   struct Visitor {
-    void operator()(ast::Call const &call) {
+    void operator()(ast::Application const &call) {
       compile_expr(ctx, sub, *call.callee);
       assert(not call.arguments.empty());
       for (auto &arg : call.arguments) {

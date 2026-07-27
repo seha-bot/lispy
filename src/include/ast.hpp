@@ -10,24 +10,6 @@
 
 namespace ast {
 
-// TODO: make a typed wrapper around this so, for example, lambda knows that
-// the entity it holds is a Lambda::Parameter.
-struct EntityId {
-  bool operator==(EntityId const &) const = default;
-  std::size_t value;
-};
-
-struct Tag {
-  bool operator==(Tag const &) const = default;
-  std::string name;
-};
-
-struct TagId {
-  auto operator<=>(TagId const &) const = default;
-  // TODO: Rename to value.
-  std::size_t id;
-};
-
 struct TypeId {
   /// Special value which represents the unit type.
   static const TypeId unit_id;
@@ -37,21 +19,97 @@ struct TypeId {
 
 constexpr TypeId TypeId::unit_id = {.value = static_cast<std::size_t>(-1)};
 
-struct EntityReference {
-  EntityId id;
+struct Tag {
+  bool operator==(Tag const &) const = default;
+  std::string name;
 };
+
+struct TagId {
+  auto operator<=>(TagId const &) const = default;
+  std::size_t value;
+};
+
+struct EntityId {
+  bool operator==(EntityId const &) const = default;
+  std::size_t value;
+};
+
+namespace expr {
+struct Expr;
+}
+
+namespace entity {
+
+struct ValueDeclaration {
+  std::string name;
+  TypeId type_signature;
+};
+
+struct ValueDefinition {
+  std::string name;
+  std::unique_ptr<expr::Expr> value;
+};
+
+struct MergedValueDefinition {
+  std::string name;
+  TypeId type_signature;
+  std::unique_ptr<expr::Expr> value;
+};
+
+struct TypeFormDefinition {
+  std::string name;
+  TypeId type;
+};
+
+struct Binding {
+  std::string name;
+  std::optional<TypeId> type;
+};
+
+struct TypeBinding {
+  std::string name;
+};
+
+struct ModuleEntity;
+struct ModuleDefinition {
+  std::string name;
+};
+
+using ModuleEntityBase = std::variant<ValueDeclaration, ValueDefinition, MergedValueDefinition,
+                                      TypeFormDefinition, ModuleDefinition>;
+struct ModuleEntity : ModuleEntityBase {
+  using ModuleEntityBase::variant;
+
+  std::string &name() {
+    return std::visit([](auto &e) -> std::string & { return e.name; }, *this);
+  }
+
+  std::string const &name() const {
+    return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
+  }
+};
+
+using TypedEntityBase =
+    std::variant<ValueDeclaration, ValueDefinition, MergedValueDefinition, Binding>;
+struct TypedEntity : TypedEntityBase {
+  using TypedEntityBase::variant;
+};
+
+} // namespace entity
+
+namespace expr {
 
 struct Expr;
 
-struct Call {
-  std::unique_ptr<Expr> callee;
-  std::vector<Expr> arguments;
+struct Application {
+  std::unique_ptr<Expr> function;
+  std::unique_ptr<Expr> argument;
 };
 
 struct Case {
   struct Pattern {
     TagId tag;
-    std::vector<EntityId> bindings;
+    std::vector<entity::Binding> bindings;
   };
 
   struct Choice;
@@ -75,30 +133,30 @@ struct Pack {
   std::vector<TaggedValue> tagged_values;
 };
 
-struct Binding {
-  std::string name;
-  std::optional<TypeId> type;
-};
-
-struct TypeBinding {
-  std::string name;
-  // std::optional<Kind> kind;
-};
-
 struct Lambda {
-  std::vector<EntityId> captures;
-  // TODO: rename to binding_id.
-  EntityId parameter;
+  std::vector<std::reference_wrapper<entity::Binding const>> captures;
+  std::unique_ptr<entity::Binding> binding;
   std::unique_ptr<Expr> body;
 };
 
 struct TVLambda {
-  // This is a TypeBinding
-  EntityId binding_id;
   std::unique_ptr<Expr> body;
 };
 
-using ExprBase = std::variant<Call, Case, Variant, Pack, Lambda, TVLambda, EntityReference>;
+struct ValueReference {
+  // std::variant<entity::ValueDeclaration const *, entity::ValueDefinition const *,
+  //              entity::MergedValueDefinition const *>
+  //     entity;
+  // TODO: This is guaranteed to be one from the comment above.
+  EntityId value_entity_id;
+};
+
+struct BindingReference {
+  std::reference_wrapper<entity::Binding const> binding;
+};
+
+using ExprBase = std::variant<Application, Case, Variant, Pack, Lambda, TVLambda, ValueReference,
+                              BindingReference>;
 struct Expr : ExprBase {
   using ExprBase::variant;
 };
@@ -108,54 +166,7 @@ struct Case::Choice {
   Expr arm;
 };
 
-struct ValueDefinition {
-  std::string name;
-  Expr value;
-};
-
-struct TypeFormDefinition {
-  std::string name;
-  TypeId type;
-};
-
-struct ValueDeclaration {
-  std::string name;
-  TypeId type_signature;
-};
-
-struct MergedValueDefinition {
-  std::string name;
-  TypeId type_signature;
-  Expr value;
-};
-
-struct ModuleDefinition {
-  std::string name;
-  std::vector<EntityId> entities;
-};
-
-// Entities have names.
-// FIX: Entities need a stricter definition.
-// Look what your lies have allowed:
-// (def val
-//   (pack
-//     (:a Bool)
-//     (:b Bool)))
-// TODO: Should bindings be entities? They don't behave like other entities because
-// they are never shallow.
-using EntityBase = std::variant<ValueDeclaration, ValueDefinition, MergedValueDefinition,
-                                TypeFormDefinition, ModuleDefinition, Binding, TypeBinding>;
-struct Entity : EntityBase {
-  using EntityBase::variant;
-
-  std::string &name() {
-    return std::visit([](auto &e) -> std::string & { return e.name; }, *this);
-  }
-
-  std::string const &name() const {
-    return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
-  }
-};
+} // namespace expr
 
 namespace type {
 
@@ -198,31 +209,31 @@ struct Application {
 // Each object represents a unique variable.
 struct Variable {};
 
-struct NamedReference {
-  // This must always be a TypeFormDefinition.
+struct NamedTypeReference {
+  // TODO: Strongly type this so that it's guaranteed it represents a TypeFormDefinition.
   EntityId definition_id;
 };
 
 using UnnamedBase = std::variant<Arrow, ForAll, DeBruijnIndex, Variant, Struct, Application,
-                                 Variable, NamedReference>;
+                                 Variable, NamedTypeReference>;
 struct Unnamed : UnnamedBase {
   using UnnamedBase::variant;
 };
 
+// FIX: Dude... this is unused...
 struct Named {
   Unnamed type;
-  // TODO: maybe unneded.
-  EntityId definition_id;
+  std::reference_wrapper<entity::TypeFormDefinition const> definition;
 };
 
 using TypeBase = std::variant<Unnamed, Named>;
 struct Type : TypeBase {
   using TypeBase::variant;
 
-  std::optional<EntityId> definition_id() const {
+  entity::TypeFormDefinition const *definition() const {
     struct Visitor {
-      std::optional<EntityId> operator()(Unnamed const &) { return std::nullopt; }
-      std::optional<EntityId> operator()(Named const &t) { return t.definition_id; }
+      entity::TypeFormDefinition const *operator()(Unnamed const &) { return nullptr; }
+      entity::TypeFormDefinition const *operator()(Named const &t) { return &t.definition.get(); }
     };
     return std::visit(Visitor{}, *this);
   }
@@ -241,7 +252,7 @@ struct Type : TypeBase {
 } // namespace ast
 
 template <> struct std::hash<ast::EntityId> {
-  static std::size_t operator()(ast::EntityId const &eid) { return eid.value; }
+  static std::size_t operator()(ast::EntityId const &id) { return id.value; }
 };
 
 #endif

@@ -1,9 +1,14 @@
 #include "lowerer.hpp"
 
 #include <algorithm>
+#include <array>
+#include <concepts>
 #include <cstddef>
 #include <expected>
+#include <functional>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -23,12 +28,12 @@ namespace parser {
 // vacant is a cool word
 namespace {
 
-template <typename T>
-auto const to = []<typename... Ts>(Ts &&...args) { return T(std::forward<Ts>(args)...); };
-
 auto const alloc = []<typename T>(T val) { return std::make_unique<T>(std::move(val)); };
 
 namespace raw {
+
+template <typename T>
+auto const to = []<typename... Ts>(Ts &&...args) { return T(std::forward<Ts>(args)...); };
 
 template <typename A> using Parser = parsy::Parsy<ExprView, A>;
 
@@ -93,14 +98,28 @@ template <typename A> Parser<A> list(Parser<A> parser) {
 
 Parser<ast::TagId> tag_parser(Context ctx) {
   return atom_starting_with(':') | [ctx = std::move(ctx)](ExprView atom_view) -> ast::TagId {
-    return ctx.es.get_tag(std::move(atom_view.head_as_atom().name));
+    return ctx.tags.get_tag(std::move(atom_view.head_as_atom().name));
   };
 }
+
+struct TypeLookupVisitor {
+  ast::type::Unnamed operator()(scope::TypeBinding type_binding) {
+    return ast::type::DeBruijnIndex{
+        ctx.type_binding_relative_index(type_binding.absolute_index),
+    };
+  }
+  ast::type::Unnamed operator()(scope::TypeFormDefinition type_form_definition) {
+    return ast::type::NamedTypeReference{type_form_definition.id};
+  }
+  ast::type::Unnamed operator()(auto const &) { todo(); }
+
+  Context const &ctx;
+};
 
 Parser<ast::TypeId> type_parser(Context ctx) noexcept {
   auto rec_type_parser = [ctx] { return parsy::rec<ExprView>([ctx] { return type_parser(ctx); }); };
 
-  auto name_defined = [ctx](raw_ast::Atom const &atom) { return !!ctx.lookup(atom.name); };
+  auto name_defined = [ctx](raw_ast::Atom const &atom) { return !!ctx.scope().lookup(atom.name); };
   auto defined_name = [name_defined] {
     return atom_where(parsy::MeaningfulPredicate{
         .meaning = "a defined type name",
@@ -108,20 +127,12 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
     });
   };
 
-  auto lookup = [ctx](ExprView atom_view) -> ast::type::Unnamed {
-    auto entity_id_opt = ctx.lookup(atom_view.head_as_atom().name);
-    if (not entity_id_opt) {
+  auto lookup = [ctx](ExprView name_view) -> ast::type::Unnamed {
+    auto scope_entry = ctx.scope().lookup(name_view.head_as_atom().name);
+    if (not scope_entry) {
       todo();
     }
-    auto entity_id = *entity_id_opt;
-
-    if (ctx.es.holds_alternative<ast::TypeBinding>(entity_id)) {
-      return ast::type::DeBruijnIndex{ctx.type_binding_index(entity_id)};
-    } else if (ctx.es.holds_alternative<ast::TypeFormDefinition>(entity_id)) {
-      return ast::type::NamedReference{entity_id};
-    } else {
-      todo();
-    }
+    return std::visit(TypeLookupVisitor{ctx}, *scope_entry);
   };
 
   auto arrow_parser = seq(to<ast::type::Arrow>, rec_type_parser(), rec_type_parser());
@@ -130,17 +141,12 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
     // TODO: Factor this out because it's also used in expr_parser in 2 places.
     auto to_binding = [ctx](ExprView name_view) {
       auto &atom = name_view.head_as_atom();
-      auto binding_id = ctx.es.reserve_store(ast::TypeBinding{atom.name});
-      return std::make_pair(ctx.with_names({{std::move(atom.name), binding_id}}), binding_id);
+      auto new_ctx = ctx;
+      scope::TypeBinding type_binding{new_ctx.push_type_binding()};
+      return new_ctx.with_names({{atom.name, type_binding}});
     };
-
     auto binding_parser = atom("a type binding name") | to_binding;
-
-    return std::move(binding_parser) >> [](std::pair<Context, ast::EntityId> p) {
-      auto [new_ctx, binding_id] = p;
-      new_ctx.push_type_binding(binding_id);
-      return type_parser(new_ctx) | to<ast::type::ForAll>;
-    };
+    return std::move(binding_parser) >> type_parser | to<ast::type::ForAll>;
   }();
 
   auto variant_parser = [ctx, rec_type_parser] -> Parser<ast::type::Variant> {
@@ -174,44 +180,47 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
   });
 }
 
-Parser<ast::Expr> expr_parser(Context ctx) noexcept;
+Parser<ast::expr::Expr> expr_parser(Context ctx) noexcept;
 
-Parser<ast::Case::Choice> case_choice_parser(Context ctx) noexcept {
+Parser<ast::expr::Case::Choice> case_choice_parser(Context const &ctx) noexcept {
   auto pattern_bindings = [] {
     return many(atom("a pattern binding") < peek(atom("a pattern binding")));
   };
-  auto arm = [](Context new_ctx) { return expr_parser(new_ctx); };
 
   return list(tag_parser(ctx) >> [=](ast::TagId tag_id) {
     return pattern_bindings() >> [=](std::vector<ExprView> binding_name_views) {
-      std::vector<ast::EntityId> binding_ids;
-      std::unordered_map<std::string, ast::EntityId> binding_names_to_ids;
-      binding_ids.reserve(binding_name_views.size());
-      binding_names_to_ids.reserve(binding_name_views.size());
-
+      std::vector<ast::entity::Binding> bindings;
+      bindings.reserve(binding_name_views.size());
       for (auto &binding_name_view : binding_name_views) {
         auto binding_name = std::move(binding_name_view.head_as_atom().name);
-        auto binding_id = ctx.es.reserve_store(ast::Binding{binding_name, std::nullopt});
-        binding_ids.push_back(binding_id);
-        binding_names_to_ids.insert({std::move(binding_name), binding_id});
+        bindings.push_back(ast::entity::Binding{std::move(binding_name), std::nullopt});
       }
-      auto new_ctx = ctx.with_names(std::move(binding_names_to_ids));
 
-      return seq(to<ast::Case::Choice>,
-                 pure_once(ast::Case::Pattern(tag_id, std::move(binding_ids))), arm(new_ctx));
+      std::unordered_map<std::string, scope::Entry> names;
+      names.reserve(binding_name_views.size());
+      for (auto &binding : bindings) {
+        names.insert({binding.name, scope::Binding{&binding}});
+      }
+      auto new_ctx = ctx.with_names(std::move(names));
+
+      return seq(to<ast::expr::Case::Choice>,
+                 pure_once(ast::expr::Case::Pattern(tag_id, std::move(bindings))),
+                 expr_parser(std::move(new_ctx)));
     };
   });
 }
 
-Parser<ast::Expr> special_parser(Context ctx) noexcept {
+Parser<ast::expr::Expr> special_parser(Context const &ctx) noexcept {
   auto rec_expr_parser = [ctx] { return parsy::rec<ExprView>([ctx] { return expr_parser(ctx); }); };
 
-  auto lambda_parser = [ctx] -> Parser<ast::Lambda> {
+  auto lambda_parser = [ctx] -> Parser<ast::expr::Lambda> {
     auto to_binding = [ctx](ExprView name_view, std::optional<ast::TypeId> type) {
       auto &atom = name_view.head_as_atom();
-
-      auto binding_id = ctx.es.reserve_store(ast::Binding{atom.name, type});
-      return std::make_pair(ctx.with_names({{std::move(atom.name), binding_id}}), binding_id);
+      auto binding = alloc(ast::entity::Binding{atom.name, type});
+      auto new_ctx = ctx.with_names({
+          {std::move(atom.name), scope::Binding{binding.get()}},
+      });
+      return std::make_pair(std::move(new_ctx), std::move(binding));
     };
 
     auto binding_parser = any(std::array{
@@ -220,57 +229,74 @@ Parser<ast::Expr> special_parser(Context ctx) noexcept {
         list(cut(seq(to_binding, atom("a binding name"), type_parser(ctx)))),
     });
 
-    return std::move(binding_parser) >> [](std::pair<Context, ast::EntityId> p) {
-      auto [new_ctx, binding_id] = p;
-      return expr_parser(new_ctx) | [new_ctx, binding_id](ast::Expr body) {
-        std::vector<ast::EntityId> captures(new_ctx.captures().begin(), new_ctx.captures().end());
-        return ast::Lambda{std::move(captures), binding_id,
-                           std::make_unique<ast::Expr>(std::move(body))};
-      };
-    };
+    return std::move(binding_parser) >>
+           [](std::pair<Context, std::unique_ptr<ast::entity::Binding>> p) {
+             auto to_lambda = [ctx = p.first](std::unique_ptr<ast::entity::Binding> binding,
+                                              ast::expr::Expr body) {
+               std::vector<std::reference_wrapper<ast::entity::Binding const>> captures;
+               for (auto *binding_ptr : ctx.scope().captures()) {
+                 captures.push_back(*binding_ptr);
+               }
+               return ast::expr::Lambda{
+                   std::move(captures),
+                   std::move(binding),
+                   alloc(std::move(body)),
+               };
+             };
+             auto [new_ctx, binding] = std::move(p);
+             return seq(to_lambda, pure_once(std::move(binding)), expr_parser(new_ctx));
+           };
   }();
 
-  auto tv_lambda_parser = [ctx] -> Parser<ast::TVLambda> {
+  auto tv_lambda_parser = [ctx] -> Parser<ast::expr::TVLambda> {
     auto to_binding = [ctx](ExprView name_view) {
       auto &atom = name_view.head_as_atom();
-
-      auto binding_id = ctx.es.reserve_store(ast::TypeBinding{atom.name});
-      return std::make_pair(ctx.with_names({{std::move(atom.name), binding_id}}), binding_id);
+      auto new_ctx = ctx;
+      scope::TypeBinding type_binding{new_ctx.push_type_binding()};
+      return new_ctx.with_names({{atom.name, type_binding}});
     };
 
     auto binding_parser = atom("a type binding name") | to_binding;
-
-    return std::move(binding_parser) >> [](std::pair<Context, ast::EntityId> p) {
-      auto [new_ctx, binding_id] = p;
-      new_ctx.push_type_binding(binding_id);
-      return expr_parser(new_ctx) | [new_ctx, binding_id](ast::Expr body) {
-        return ast::TVLambda{binding_id, std::make_unique<ast::Expr>(std::move(body))};
-      };
-    };
+    return std::move(binding_parser) >> expr_parser | alloc | to<ast::expr::TVLambda>;
   }();
 
-  auto case_parser = [ctx, rec_expr_parser] -> Parser<ast::Case> {
-    return seq(to<ast::Case>, rec_expr_parser() | alloc, many(case_choice_parser(ctx)));
+  auto case_parser = [ctx, rec_expr_parser] -> Parser<ast::expr::Case> {
+    return seq(to<ast::expr::Case>, rec_expr_parser() | alloc, many(case_choice_parser(ctx)));
   }();
 
-  auto pack_parser = [ctx, rec_expr_parser] -> Parser<ast::Pack> {
-    return many(list(seq(to<ast::TaggedValue>, tag_parser(ctx), rec_expr_parser() | alloc))) |
-           to<ast::Pack>;
+  auto pack_parser = [ctx, rec_expr_parser] -> Parser<ast::expr::Pack> {
+    return many(list(seq(to<ast::expr::TaggedValue>, tag_parser(ctx), rec_expr_parser() | alloc))) |
+           to<ast::expr::Pack>;
   }();
 
   return any(std::array{
-      atom_exact("lambda") > cut(std::move(lambda_parser)) | to<ast::Expr>,
-      atom_exact("tv-lambda") > cut(std::move(tv_lambda_parser)) | to<ast::Expr>,
-      atom_exact("case") > cut(std::move(case_parser)) | to<ast::Expr>,
-      atom_exact("pack") > cut(std::move(pack_parser)) | to<ast::Expr>,
+      atom_exact("lambda") > cut(std::move(lambda_parser)) | to<ast::expr::Expr>,
+      atom_exact("tv-lambda") > cut(std::move(tv_lambda_parser)) | to<ast::expr::Expr>,
+      atom_exact("case") > cut(std::move(case_parser)) | to<ast::expr::Expr>,
+      atom_exact("pack") > cut(std::move(pack_parser)) | to<ast::expr::Expr>,
   });
 }
 
-Parser<ast::Expr> expr_parser(Context ctx) noexcept {
+struct ValueLookupVisitor {
+  ast::expr::Expr operator()(scope::Binding binding) {
+    ctx.scope().capture(*binding.binding_ptr);
+    return ast::expr::BindingReference{*binding.binding_ptr};
+  }
+  ast::expr::Expr operator()(scope::ValueDeclaration v) { return ast::expr::ValueReference{v.id}; }
+  ast::expr::Expr operator()(scope::ValueDefinition v) { return ast::expr::ValueReference{v.id}; }
+  ast::expr::Expr operator()(scope::MergedValueDefinition v) {
+    return ast::expr::ValueReference{v.id};
+  }
+  ast::expr::Expr operator()(auto const &) { todo(); }
+
+  Context const &ctx;
+};
+
+Parser<ast::expr::Expr> expr_parser(Context ctx) noexcept {
   auto rec_expr_parser = [ctx] { return parsy::rec<ExprView>([ctx] { return expr_parser(ctx); }); };
 
   // TODO: This is already defined in type_parser.
-  auto name_defined = [ctx](raw_ast::Atom const &atom) { return !!ctx.lookup(atom.name); };
+  auto name_defined = [ctx](raw_ast::Atom const &atom) { return !!ctx.scope().lookup(atom.name); };
   auto defined_name = [&] {
     return atom_where(parsy::MeaningfulPredicate{
         .meaning = "a defined name",
@@ -278,32 +304,40 @@ Parser<ast::Expr> expr_parser(Context ctx) noexcept {
     });
   };
 
-  auto to_entity_reference = [ctx](ExprView name_view) -> ast::Expr {
-    auto entity_id = ctx.lookup(name_view.head_as_atom().name);
-    if (not entity_id) {
+  auto to_entity_reference = [ctx](ExprView name_view) -> ast::expr::Expr {
+    auto scope_entry = ctx.scope().lookup(name_view.head_as_atom().name);
+    if (not scope_entry) {
       todo();
     }
-    // TODO: do this only if entity_id is a binding.
-    Context(ctx).capture(*entity_id);
-    return ast::EntityReference(*entity_id);
+    return std::visit(ValueLookupVisitor{ctx}, *scope_entry);
   };
 
   auto name_lookup = [=] { return defined_name() | to_entity_reference; };
 
-  auto call_parser = [ctx](ast::Expr callee) -> Parser<ast::Call> {
-    return seq(to<ast::Call>, pure_once(alloc(std::move(callee))), cut(some(expr_parser(ctx))));
+  auto call_parser = [ctx](ast::expr::Expr function) -> Parser<ast::expr::Application> {
+    auto flatten = [](ast::expr::Expr function, std::vector<ast::expr::Expr> arguments) {
+      ast::expr::Application app{alloc(std::move(function)), alloc(std::move(arguments.front()))};
+      for (std::size_t i = 1; i < arguments.size(); ++i) {
+        app = ast::expr::Application{
+            alloc(ast::expr::Expr{std::move(app)}),
+            alloc(std::move(arguments[i])),
+        };
+      }
+      return app;
+    };
+
+    return seq(flatten, pure_once(std::move(function)), cut(some(expr_parser(ctx))));
   };
 
   return any(std::array{
       name_lookup(),
-      tag_parser(ctx) | [](ast::TagId tag_id) -> ast::Expr {
-        return ast::Variant{.tag_id = tag_id, .value = std::nullopt};
-      },
+      seq(to<ast::expr::Variant>, tag_parser(ctx), pure(std::nullopt)) | to<ast::expr::Expr>,
       list(cut(any(std::array{
-          name_lookup() >> call_parser | to<ast::Expr>,
-          seq(to<ast::Variant>, tag_parser(ctx), rec_expr_parser() | alloc) | to<ast::Expr>,
+          name_lookup() >> call_parser | to<ast::expr::Expr>,
+          seq(to<ast::expr::Variant>, tag_parser(ctx), rec_expr_parser() | alloc) |
+              to<ast::expr::Expr>,
           special_parser(ctx),
-          list(cut(rec_expr_parser())) >> call_parser | to<ast::Expr>,
+          list(cut(rec_expr_parser())) >> call_parser | to<ast::expr::Expr>,
       }))),
   });
 }
@@ -353,36 +387,29 @@ std::expected<A, parsy::ParseError<ExprView>> parse(raw::Parser<A> const &parser
   return parsy::parse(parser, ExprView{std::span(&expr, &expr + 1), {}});
 }
 
-std::expected<ast::ValueDefinition, parsy::ParseError<ExprView>>
-lower_entity(Context const &ctx, shallow_ast::ShallowValueDefinition value) {
-  auto expr = parse(raw::expr_parser(ctx), std::move(value.raw_value));
-  if (not expr) {
-    return std::unexpected(std::move(expr.error()));
-  }
-  return ast::ValueDefinition{std::move(value.name), *std::move(expr)};
-}
-
-std::expected<ast::TypeFormDefinition, parsy::ParseError<ExprView>>
-lower_entity(Context ctx, shallow_ast::ShallowTypeFormDefinition shallow_type_form) {
-  auto type = parse(raw::type_parser(std::move(ctx)), std::move(shallow_type_form.raw_type));
-  if (not type) {
-    todo();
-  }
-  return ast::TypeFormDefinition{std::move(shallow_type_form.name), *std::move(type)};
-}
-
-std::expected<ast::ValueDeclaration, parsy::ParseError<ExprView>>
+std::expected<ast::entity::ValueDeclaration, parsy::ParseError<ExprView>>
 lower_entity(Context ctx, shallow_ast::ShallowValueDeclaration shallow_value_declaration) {
   auto type_signature = parse(raw::type_parser(std::move(ctx)),
                               std::move(shallow_value_declaration.raw_type_signature));
   if (not type_signature) {
     todo();
   }
-  return ast::ValueDeclaration{std::move(shallow_value_declaration.name),
-                               *std::move(type_signature)};
+  return ast::entity::ValueDeclaration{
+      std::move(shallow_value_declaration.name),
+      *std::move(type_signature),
+  };
 }
 
-std::expected<ast::MergedValueDefinition, parsy::ParseError<ExprView>>
+std::expected<ast::entity::ValueDefinition, parsy::ParseError<ExprView>>
+lower_entity(Context const &ctx, shallow_ast::ShallowValueDefinition value) {
+  auto expr = parse(raw::expr_parser(ctx), std::move(value.raw_value));
+  if (not expr) {
+    return std::unexpected(std::move(expr.error()));
+  }
+  return ast::entity::ValueDefinition{std::move(value.name), alloc(*std::move(expr))};
+}
+
+std::expected<ast::entity::MergedValueDefinition, parsy::ParseError<ExprView>>
 lower_entity(Context const &ctx,
              shallow_ast::ShallowMergedValueDefinition shallow_merged_value_definition) {
   auto type_signature =
@@ -396,11 +423,23 @@ lower_entity(Context const &ctx,
     todo();
   }
 
-  return ast::MergedValueDefinition{std::move(shallow_merged_value_definition.name),
-                                    *std::move(type_signature), *std::move(expr)};
+  return ast::entity::MergedValueDefinition{
+      std::move(shallow_merged_value_definition.name),
+      *std::move(type_signature),
+      alloc(*std::move(expr)),
+  };
 }
 
-std::expected<ast::ModuleDefinition, parsy::ParseError<ExprView>>
+std::expected<ast::entity::TypeFormDefinition, parsy::ParseError<ExprView>>
+lower_entity(Context ctx, shallow_ast::ShallowTypeFormDefinition shallow_type_form) {
+  auto type = parse(raw::type_parser(std::move(ctx)), std::move(shallow_type_form.raw_type));
+  if (not type) {
+    todo();
+  }
+  return ast::entity::TypeFormDefinition{std::move(shallow_type_form.name), *std::move(type)};
+}
+
+std::expected<ast::entity::ModuleDefinition, parsy::ParseError<ExprView>>
 lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
   auto shallow_entities_result =
       parse(raw::shallow_entities_parser(), std::move(shallow_module.raw_entities));
@@ -410,6 +449,7 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
 
   auto &shallow_entities = *shallow_entities_result;
   std::unordered_map<std::string, std::pair<std::size_t, ast::EntityId>> entity_ids;
+  std::unordered_map<std::string, scope::Entry> names;
 
   for (std::size_t i = 0; i < shallow_entities.size(); ++i) {
     auto &shallow_entity = shallow_entities[i];
@@ -428,21 +468,34 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
         todo();
       }
     } else {
-      entity_ids.insert({name, {i, ctx.es.reserve(shallow_entity.index())}});
+      struct Visitor {
+        scope::Entry operator()(shallow_ast::ShallowValueDeclaration const &) {
+          return scope::ValueDeclaration{id};
+        }
+        scope::Entry operator()(shallow_ast::ShallowValueDefinition const &) {
+          return scope::ValueDefinition{id};
+        }
+        scope::Entry operator()(shallow_ast::ShallowMergedValueDefinition const &) {
+          return scope::MergedValueDefinition{id};
+        }
+        scope::Entry operator()(shallow_ast::ShallowTypeFormDefinition const &) {
+          return scope::TypeFormDefinition{id};
+        }
+        scope::Entry operator()(shallow_ast::ShallowModuleDefinition const &) { todo(); }
+
+        ast::EntityId id;
+      };
+      auto id = ctx.es.reserve();
+      entity_ids.insert({name, {i, id}});
+      names.insert({name, std::visit(Visitor{id}, shallow_entity)});
     }
   }
+  auto new_ctx = ctx.with_names(std::move(names));
 
-  for (auto &[_, index_and_entity_id] : entity_ids) {
-    auto [i, id] = index_and_entity_id;
+  for (auto &[_, index_and_id] : entity_ids) {
+    auto [i, id] = index_and_id;
     auto visitor = [&](auto shallow_entity) -> std::expected<void, parsy::ParseError<ExprView>> {
-      // TODO: Figure out a way to remove the copy here.
-      std::unordered_map<std::string, ast::EntityId> haha;
-      for (auto &[k, v] : entity_ids) {
-        haha[k] = v.second;
-      }
-
-      auto result =
-          shallow::lower_entity(ctx.with_names(std::move(haha)), std::move(shallow_entity));
+      auto result = shallow::lower_entity(new_ctx, std::move(shallow_entity));
       if (not result) {
         return std::unexpected(std::move(result.error()));
       }
@@ -455,12 +508,7 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
     }
   }
 
-  std::vector<ast::EntityId> result;
-  result.reserve(entity_ids.size());
-  for (auto &[_, index_and_entity_id] : entity_ids) {
-    result.push_back(index_and_entity_id.second);
-  }
-  return ast::ModuleDefinition{std::move(shallow_module.name), result};
+  return ast::entity::ModuleDefinition{std::move(shallow_module.name)};
 }
 
 } // namespace shallow
@@ -470,19 +518,25 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
 std::expected<storage::ResolvedAST, parsy::ParseError<ExprView>>
 lower_ast(std::string filename, std::vector<raw_ast::Expr> ast) noexcept {
   auto ts = std::make_unique<storage::TypeStorage>();
-  storage::EntityStorage storage;
+  storage::EntityStorage es;
+  storage::TagStorage tags;
   auto module_definition = shallow::lower_entity(
-      Context(*ts, storage),
+      Context(*ts, es, tags),
       shallow_ast::ShallowModuleDefinition{
-          filename,
+          std::move(filename),
           raw_ast::Expr(raw_ast::List(std::move(ast)), raw_ast::SourceRange{}),
       });
   if (not module_definition) {
     return std::unexpected(module_definition.error());
   }
-  auto [e, t] = storage.produce();
-  return storage::ResolvedAST{*std::move(module_definition), std::move(ts), std::move(e),
-                              std::move(t)};
+  auto e = std::move(es).finalize();
+  auto t = std::move(tags).finalize();
+  return storage::ResolvedAST{
+      *std::move(module_definition),
+      std::move(ts),
+      std::move(e),
+      std::move(t),
+  };
 }
 
 } // namespace parser

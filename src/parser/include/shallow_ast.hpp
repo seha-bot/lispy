@@ -3,7 +3,7 @@
 
 #include "raw_ast.hpp"
 
-// Shallow entites are partially-compiled entities.
+// Shallow entites are partially-compiled module entities.
 namespace parser::shallow_ast {
 
 struct ShallowValueDefinition {
@@ -32,8 +32,6 @@ struct ShallowModuleDefinition {
   raw_ast::Expr raw_entities;
 };
 
-// TODO: This must be in the same order as EntityBase from ast.hpp.
-// Automate this to remove human error.
 using ShallowEntityBase =
     std::variant<ShallowValueDeclaration, ShallowValueDefinition, ShallowMergedValueDefinition,
                  ShallowTypeFormDefinition, ShallowModuleDefinition>;

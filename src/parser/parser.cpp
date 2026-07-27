@@ -1,7 +1,6 @@
 #include "parser.hpp"
 
 #include <array>
-#include <cctype>
 #include <expected>
 #include <string>
 #include <string_view>

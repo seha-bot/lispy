@@ -14,9 +14,9 @@ target_link_libraries(lispy_core INTERFACE compiler_flags)
 
 add_subdirectory(parser)
 add_subdirectory(analyser)
-add_subdirectory(emitter)
-add_subdirectory(assembler)
-add_subdirectory(vm)
+# add_subdirectory(emitter)
+# add_subdirectory(assembler)
+# add_subdirectory(vm)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(Readline REQUIRED IMPORTED_TARGET readline)
@@ -27,5 +27,5 @@ target_link_libraries(lispy PRIVATE
   PkgConfig::Readline
   parser
   analyser
-  emitter
+  # emitter
 )

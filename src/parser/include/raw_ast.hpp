@@ -51,8 +51,7 @@ struct Expr : ExprBase {
   Expr(List value, SourceRange source_range)
       : ExprBase(std::move(value)), m_source_range(source_range) {}
 
-  Expr(Number value, SourceRange source_range)
-      : ExprBase(std::move(value)), m_source_range(source_range) {}
+  Expr(Number value, SourceRange source_range) : ExprBase(value), m_source_range(source_range) {}
 
   SourceRange source_range() const { return m_source_range; }
 

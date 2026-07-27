@@ -5,13 +5,47 @@
 #include "storage/entity_storage.hpp"
 #include "storage/type_storage.hpp"
 #include <optional>
+#include <utility>
 
 namespace parser {
 
+namespace scope {
+
+struct TypeBinding {
+  std::size_t absolute_index;
+};
+struct TypeFormDefinition {
+  ast::EntityId id;
+};
+struct Binding {
+  ast::entity::Binding *binding_ptr;
+};
+struct ValueDeclaration {
+  ast::EntityId id;
+};
+struct ValueDefinition {
+  ast::EntityId id;
+};
+struct MergedValueDefinition {
+  ast::EntityId id;
+};
+
+using EntryBase = std::variant<TypeBinding, TypeFormDefinition, Binding, ValueDeclaration,
+                               ValueDefinition, MergedValueDefinition>;
+struct Entry : EntryBase {
+  using EntryBase::variant;
+};
+
+// TODO: Move into a separate file.
 struct Scope {
-  static std::optional<ast::EntityId> lookup(Scope const *scope, std::string_view name) {
+  Scope() = default;
+  Scope(std::unordered_map<std::string, Entry> bindings, std::shared_ptr<Scope> parent)
+      : m_entries(std::move(bindings)), m_parent(std::move(parent)) {}
+
+  std::optional<Entry> lookup(std::string_view name) const {
+    Scope const *scope = this;
     while (true) {
-      if (auto it = scope->m_entities.find(std::string(name)); it != scope->m_entities.end()) {
+      if (auto it = scope->m_entries.find(std::string(name)); it != scope->m_entries.end()) {
         return it->second;
       }
       if (not scope->m_parent) {
@@ -21,79 +55,67 @@ struct Scope {
     }
   }
 
-  static void capture(storage::EntityStorage const &es, Scope *scope, ast::EntityId entity_id) {
-    if (not es.is_binding(entity_id)) {
-      return;
-    }
-
+  void capture(ast::entity::Binding const &binding) {
+    Scope *scope = this;
     while (true) {
-      if (std::ranges::find(scope->m_entities, entity_id, [](auto &e) { return e.second; }) !=
-          scope->m_entities.end()) {
-        return;
+      for (auto &[_, entry] : scope->m_entries) {
+        auto *binding_entry = std::get_if<scope::Binding>(&entry);
+        if (binding_entry and binding_entry->binding_ptr == &binding) {
+          return;
+        }
       }
       if (not scope->m_parent) {
-        // If this happens, something got screeeewed
-        todo();
+        // If this executes, something got screeeewed.
+        // This means you're trying to capture a binding which is not in scope.
+        std::unreachable();
       }
 
       // FIX: err check
-      scope->m_captures.insert(entity_id);
+      scope->m_captures.insert(&binding);
       scope = scope->m_parent.get();
     }
   }
 
-  Scope() = default;
-  Scope(std::unordered_map<std::string, ast::EntityId> entities, std::shared_ptr<Scope> parent)
-      : m_entities(entities), m_parent(parent) {}
-
-  std::unordered_set<ast::EntityId> &captures() { return m_captures; }
+  std::unordered_set<ast::entity::Binding const *> const &captures() const { return m_captures; }
 
 private:
-  std::unordered_map<std::string, ast::EntityId> m_entities;
+  std::unordered_map<std::string, Entry> m_entries;
   std::shared_ptr<Scope> m_parent;
-  std::unordered_set<ast::EntityId> m_captures;
+  std::unordered_set<ast::entity::Binding const *> m_captures;
 };
 
+} // namespace scope
+
 struct Context {
-  Context(storage::TypeStorage &ts_, storage::EntityStorage &es_)
-      : Context(ts_, es_, std::make_shared<Scope>(), {}) {}
+  Context(storage::TypeStorage &ts_, storage::EntityStorage &es_, storage::TagStorage &tags_)
+      : Context(ts_, es_, tags_, std::make_shared<scope::Scope>(), 0) {}
 
   // TODO: The keys could be std::string_view.
-  Context with_names(std::unordered_map<std::string, ast::EntityId> entities) const {
-    return {ts, es, std::make_shared<Scope>(std::move(entities), m_scope), m_type_binding_ids};
+  Context with_names(std::unordered_map<std::string, scope::Entry> names) const {
+    return {ts, es, tags, std::make_shared<scope::Scope>(std::move(names), m_scope),
+            m_type_binding_count};
   }
 
-  std::optional<ast::EntityId> lookup(std::string_view name) const {
-    return Scope::lookup(m_scope.get(), name);
-  }
+  scope::Scope &scope() const { return *m_scope; }
 
-  void capture(ast::EntityId const &result) { return Scope::capture(es, m_scope.get(), result); }
-  std::unordered_set<ast::EntityId> const &captures() const { return m_scope->captures(); }
-
-  std::size_t type_binding_index(ast::EntityId type_binding_id) const {
-    auto it = std::ranges::find(m_type_binding_ids, type_binding_id);
-    if (it == m_type_binding_ids.end()) {
-      todo();
-    }
-    return static_cast<std::size_t>(m_type_binding_ids.end() - it) - 1;
+  std::size_t type_binding_relative_index(std::size_t type_binding_absolute_index) const {
+    return m_type_binding_count - 1 - type_binding_absolute_index;
   }
-
-  void push_type_binding(ast::EntityId type_binding_id) {
-    m_type_binding_ids.push_back(type_binding_id);
-  }
-  void pop_type_binding() { m_type_binding_ids.pop_back(); }
+  std::size_t push_type_binding() { return m_type_binding_count++; }
 
   storage::TypeStorage &ts;
   storage::EntityStorage &es;
+  storage::TagStorage &tags;
 
 private:
-  Context(storage::TypeStorage &ts_, storage::EntityStorage &es_, std::shared_ptr<Scope> scope,
-          std::vector<ast::EntityId> type_binding_ids)
-      : ts(ts_), es(es_), m_scope(std::move(scope)),
-        m_type_binding_ids(std::move(type_binding_ids)) {}
+  Context(storage::TypeStorage &ts_, storage::EntityStorage &es_, storage::TagStorage &tags_,
+          std::shared_ptr<scope::Scope> scope, std::size_t type_binding_count)
+      : ts(ts_), es(es_), tags(tags_), m_scope(std::move(scope)),
+        m_type_binding_count(type_binding_count) {}
 
-  std::shared_ptr<Scope> m_scope;
-  std::vector<ast::EntityId> m_type_binding_ids;
+  std::shared_ptr<scope::Scope> m_scope;
+  // TODO: strongly type this.
+  std::size_t m_type_binding_count;
 };
 
 } // namespace parser
