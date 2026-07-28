@@ -1,10 +1,14 @@
-#ifndef SHALLOW_AST_HPP
-#define SHALLOW_AST_HPP
+module;
 
-#include "raw_ast.hpp"
+#include <string>
+#include <variant>
+
+export module shallow_ast;
+
+import raw_ast;
 
 // Shallow entites are partially-compiled module entities.
-namespace parser::shallow_ast {
+export namespace parser::shallow_ast {
 
 struct ShallowValueDefinition {
   std::string name;
@@ -46,5 +50,3 @@ struct ShallowEntity : ShallowEntityBase {
 };
 
 } // namespace parser::shallow_ast
-
-#endif

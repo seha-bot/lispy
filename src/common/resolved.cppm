@@ -1,10 +1,14 @@
-#ifndef RESOLVED
-#define RESOLVED
+module;
 
-#include "ast.hpp"
-#include "type_storage.hpp"
+#include <memory>
+#include <vector>
 
-namespace storage {
+export module resolved;
+
+import ast;
+import type_storage;
+
+export namespace storage {
 
 struct ResolvedAST {
   ast::entity::ModuleDefinition global_module;
@@ -14,5 +18,3 @@ struct ResolvedAST {
 };
 
 } // namespace storage
-
-#endif

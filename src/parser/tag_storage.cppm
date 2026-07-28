@@ -1,14 +1,16 @@
-#ifndef TAG_STORAGE
-#define TAG_STORAGE
+module;
 
 #include <functional>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include "ast.hpp"
+export module tag_storage;
 
-namespace parser {
+import ast;
+
+export namespace parser {
 
 struct TagStorage {
   ast::TagId get_tag(std::string name) {
@@ -32,10 +34,7 @@ struct TagStorage {
   }
 
 private:
-  using Hasher = decltype([](ast::Tag const &x) { return std::hash<std::string>{}(x.name); });
-  std::unordered_map<ast::Tag, ast::TagId, Hasher> m_tags;
+  std::unordered_map<ast::Tag, ast::TagId> m_tags;
 };
 
 } // namespace parser
-
-#endif

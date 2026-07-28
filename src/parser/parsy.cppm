@@ -1,5 +1,4 @@
-#ifndef PARSY_HPP
-#define PARSY_HPP
+module;
 
 #include <array>
 #include <concepts>
@@ -15,7 +14,9 @@
 #include <variant>
 #include <vector>
 
-namespace parsy {
+export module parsy;
+
+export namespace parsy {
 
 template <typename T>
 concept TokenView =
@@ -422,5 +423,3 @@ Parsy<T, T> some_where(MeaningfulPredicate<Pred> pred) {
 }
 
 } // namespace parsy
-
-#endif

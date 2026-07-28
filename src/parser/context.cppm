@@ -1,16 +1,18 @@
-#ifndef CONTEXT_HPP
-#define CONTEXT_HPP
+module;
 
 #include <cstddef>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 
-#include "entity_storage.hpp"
-#include "scope.hpp"
-#include "storage/type_storage.hpp"
-#include "tag_storage.hpp"
+export module context;
 
-namespace parser {
+import entity_storage;
+import scope;
+import type_storage;
+import tag_storage;
+
+export namespace parser {
 
 struct Context {
   Context(storage::TypeStorage &ts_, EntityStorage &es_, TagStorage &tags_)
@@ -45,5 +47,3 @@ private:
 };
 
 } // namespace parser
-
-#endif

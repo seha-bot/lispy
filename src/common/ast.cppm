@@ -1,5 +1,4 @@
-#ifndef AST_HPP
-#define AST_HPP
+module;
 
 #include <cstddef>
 #include <memory>
@@ -8,7 +7,9 @@
 #include <variant>
 #include <vector>
 
-namespace ast {
+export module ast;
+
+export namespace ast {
 
 struct TypeId {
   /// Special value which represents the unit type.
@@ -251,8 +252,12 @@ struct Type : TypeBase {
 
 } // namespace ast
 
-template <> struct std::hash<ast::EntityId> {
-  static std::size_t operator()(ast::EntityId const &id) { return id.value; }
+export template <> struct std::hash<ast::EntityId> {
+  static std::size_t operator()(ast::EntityId const &id) noexcept { return id.value; }
 };
 
-#endif
+export template <> struct std::hash<ast::Tag> {
+  static std::size_t operator()(ast::Tag const &tag) noexcept {
+    return std::hash<std::string>{}(tag.name);
+  }
+};

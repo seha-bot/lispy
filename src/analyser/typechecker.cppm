@@ -1,4 +1,4 @@
-#include "typechecker.hpp"
+module;
 
 #include <algorithm>
 #include <cassert>
@@ -7,16 +7,23 @@
 #include <functional>
 #include <iostream>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
 
-#include "ast.hpp"
-#include "storage/resolved.hpp"
-#include "storage/type_storage.hpp"
-#include "todo.hpp"
+export module typechecker;
+
+import ast;
+import resolved;
+import type_storage;
+import todo;
+
+export struct Error {
+  friend std::ostream &operator<<(std::ostream &os, Error) { return os; }
+};
 
 namespace {
 
@@ -26,6 +33,7 @@ using TypedEntityRefBase = std::variant<        //
     ast::entity::MergedValueDefinition const *, //
     ast::entity::Binding const *                //
     >;
+
 struct TypedEntityRef : TypedEntityRefBase {
   using TypedEntityRefBase::variant;
 };
@@ -37,8 +45,6 @@ template <> struct std::hash<TypedEntityRef> {
     return std::visit([](auto p) { return std::hash<decltype(p)>{}(p); }, e);
   }
 };
-
-namespace analyser {
 
 namespace {
 
@@ -267,8 +273,6 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx,
   return *type;
 }
 
-} // namespace
-
 // TODO: Rename.
 struct Visitor {
   std::optional<std::expected<ast::TypeId, Error>> operator()(auto const &entity) {
@@ -281,6 +285,10 @@ struct Visitor {
 
   Context &ctx;
 };
+
+} // namespace
+
+export namespace analyser {
 
 std::expected<storage::TypeEnv, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
   Context ctx{*ast.ts, ast.entities, ast.tags, {}};

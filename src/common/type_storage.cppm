@@ -1,5 +1,4 @@
-#ifndef TYPE_STORAGE_HPP
-#define TYPE_STORAGE_HPP
+module;
 
 #include <algorithm>
 #include <string>
@@ -8,10 +7,12 @@
 #include <variant>
 #include <vector>
 
-#include "ast.hpp"
-#include "todo.hpp"
+export module type_storage;
 
-namespace constraint {
+import ast;
+import todo;
+
+export namespace constraint {
 
 struct SubtypeOf {
   // a <= b
@@ -26,11 +27,15 @@ struct Constraint : ConstraintBase {
 
 } // namespace constraint
 
-namespace storage {
+export namespace storage {
 
 struct RepresentativeSets {
-  using Hasher = decltype([](ast::TypeId t) { return t.value; });
-  using Eq = decltype([](ast::TypeId a, ast::TypeId b) { return a.value == b.value; });
+  struct Hasher {
+    static std::size_t operator()(ast::TypeId t) noexcept { return t.value; }
+  };
+  struct Eq {
+    static bool operator()(ast::TypeId a, ast::TypeId b) noexcept { return a.value == b.value; }
+  };
   using Map = std::unordered_map<ast::TypeId, ast::TypeId, Hasher, Eq>;
 
   // Merges `a` into `b`.
@@ -238,5 +243,3 @@ struct TypeEnv {
 };
 
 } // namespace storage
-
-#endif

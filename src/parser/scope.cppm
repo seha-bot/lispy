@@ -1,7 +1,5 @@
-#ifndef SCOPE_HPP
-#define SCOPE_HPP
+module;
 
-#include "ast.hpp"
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -11,7 +9,11 @@
 #include <utility>
 #include <variant>
 
-namespace parser::scope {
+export module scope;
+
+import ast;
+
+export namespace parser::scope {
 
 struct TypeBinding {
   std::size_t absolute_index;
@@ -87,5 +89,3 @@ private:
 };
 
 } // namespace parser::scope
-
-#endif

@@ -1,5 +1,4 @@
-#ifndef RAW_AST_HPP
-#define RAW_AST_HPP
+module;
 
 #include <cstdint>
 #include <ostream>
@@ -8,7 +7,9 @@
 #include <variant>
 #include <vector>
 
-namespace raw_ast {
+export module raw_ast;
+
+export namespace raw_ast {
 
 struct Atom {
   std::string name;
@@ -91,5 +92,3 @@ private:
 };
 
 } // namespace raw_ast
-
-#endif

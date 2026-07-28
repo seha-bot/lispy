@@ -1,14 +1,15 @@
-#ifndef ENTITY_STORAGE
-#define ENTITY_STORAGE
+module;
 
 #include <optional>
 #include <utility>
 #include <vector>
 
-#include "ast.hpp"
-#include "todo.hpp"
+export module entity_storage;
 
-namespace parser {
+import ast;
+import todo;
+
+export namespace parser {
 
 struct EntityStorage {
   ast::EntityId reserve() {
@@ -38,5 +39,3 @@ private:
 };
 
 } // namespace parser
-
-#endif

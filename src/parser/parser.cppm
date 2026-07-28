@@ -1,18 +1,45 @@
-#include "parser.hpp"
+module;
 
 #include <array>
+#include <cstddef>
 #include <expected>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
-#include "parsy.hpp"
-#include "raw_ast.hpp"
+export module parser;
 
-namespace parser {
+import parsy;
+import raw_ast;
 
 namespace {
+
+struct StringView {
+  StringView(std::string_view view, raw_ast::SourceLocation pos) : m_view(view), m_pos(pos) {}
+
+  // TODO: This should probably also be a SourceRange.
+  raw_ast::SourceLocation pos() const { return m_pos; }
+  bool empty() const { return m_view.empty(); }
+  StringView take(std::size_t n) const { return {m_view.substr(0, n), m_pos}; }
+  char head() const { return m_view.at(0); }
+
+  StringView next() const {
+    auto new_pos = m_pos;
+    if (m_view.at(0) == '\n') {
+      ++new_pos.line;
+      new_pos.col = 0;
+    }
+    ++new_pos.col;
+    return {m_view.substr(1), new_pos};
+  }
+
+  std::string to_string() const { return std::string(m_view); }
+
+private:
+  std::string_view m_view;
+  raw_ast::SourceLocation m_pos;
+};
 
 bool is_space(char c) { return c == ' ' or c == '\n' or c == '\t' or c == '\r'; }
 
@@ -96,6 +123,8 @@ Parser<raw_ast::Expr> expr() {
 };
 
 } // namespace
+
+export namespace parser {
 
 std::expected<std::vector<raw_ast::Expr>, parsy::ParseError<StringView>>
 parse_source(std::string_view input) noexcept {
