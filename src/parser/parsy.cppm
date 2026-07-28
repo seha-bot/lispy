@@ -6,6 +6,7 @@ module;
 #include <expected>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <tuple>

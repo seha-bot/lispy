@@ -5,8 +5,8 @@
 #include <string>
 #include <utility>
 
-import parser;
 import lowerer;
+import parser;
 import typechecker;
 
 int main(int argc, char *argv[]) {

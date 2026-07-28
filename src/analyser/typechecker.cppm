@@ -18,8 +18,8 @@ export module typechecker;
 
 import ast;
 import resolved;
-import type_storage;
 import todo;
+import type_storage;
 
 export struct Error {
   friend std::ostream &operator<<(std::ostream &os, Error) { return os; }

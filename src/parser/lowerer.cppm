@@ -18,16 +18,16 @@ module;
 export module lowerer;
 
 import ast;
-import parsy;
-import todo;
-import raw_ast;
 import context;
-import shallow_ast;
+import entity_storage;
+import parsy;
+import raw_ast;
 import resolved;
 import scope;
-import type_storage;
-import entity_storage;
+import shallow_ast;
 import tag_storage;
+import todo;
+import type_storage;
 
 namespace parser {
 

@@ -124,9 +124,9 @@ Parser<raw_ast::Expr> expr() {
 
 } // namespace
 
-export namespace parser {
+namespace parser {
 
-std::expected<std::vector<raw_ast::Expr>, parsy::ParseError<StringView>>
+export std::expected<std::vector<raw_ast::Expr>, parsy::ParseError<StringView>>
 parse_source(std::string_view input) noexcept {
   return parse(wsc() > many(expr() < wsc()), StringView(input, raw_ast::SourceLocation{1, 1}));
 }

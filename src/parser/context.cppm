@@ -9,8 +9,8 @@ export module context;
 
 import entity_storage;
 import scope;
-import type_storage;
 import tag_storage;
+import type_storage;
 
 export namespace parser {
 
