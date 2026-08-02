@@ -29,11 +29,11 @@ int main(int argc, char *argv[]) {
     source = std::move(buffer).str();
   }
 
-  std::ofstream output(filename + ".out");
-  if (not output) {
-    std::cerr << "Can't open file \"" << filename << ".out" << "\" for writing.";
-    return EXIT_FAILURE;
-  }
+  // std::ofstream output(filename + ".out");
+  // if (not output) {
+  //   std::cerr << "Can't open file \"" << filename << ".out" << "\" for writing.";
+  //   return EXIT_FAILURE;
+  // }
 
   auto raw_ast = parser::parse_source(source);
   if (not raw_ast) {

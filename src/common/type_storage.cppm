@@ -12,21 +12,6 @@ export module type_storage;
 import ast;
 import todo;
 
-export namespace constraint {
-
-struct SubtypeOf {
-  // a <= b
-  ast::TypeId a_id, b_id;
-};
-
-using ConstraintBase = std::variant<SubtypeOf>;
-
-struct Constraint : ConstraintBase {
-  using ConstraintBase::variant;
-};
-
-} // namespace constraint
-
 export namespace storage {
 
 struct RepresentativeSets {
@@ -87,7 +72,7 @@ struct TypeStorage {
 
   ast::TypeId store(ast::type::Type type) {
     for (std::size_t i = 0; i < m_types.size(); ++i) {
-      if (equal(m_types[i], type)) {
+      if (type_equal(m_types[i], type)) {
         return ast::TypeId{i};
       }
     }
@@ -104,12 +89,10 @@ struct TypeStorage {
     return m_types.at(m_rep.representative(id).value);
   }
 
-  std::string to_string(ast::TypeId id) const {
-    return std::to_string(m_rep.representative(id).value);
-  }
+  bool equal(ast::TypeId a_id, ast::TypeId b_id) const { return m_rep.equal(a_id, b_id); }
 
   /// If this returns false, then the entire TypeStorage is in an invalid state.
-  bool merge_(ast::TypeId a_id, ast::TypeId b_id) {
+  [[nodiscard]] bool merge(ast::TypeId a_id, ast::TypeId b_id) {
     auto a_rep_it = m_rep.representative_iterator(a_id);
     auto b_rep_it = m_rep.representative_iterator(b_id);
     auto &a = m_types[a_rep_it->first.value];
@@ -127,58 +110,60 @@ struct TypeStorage {
       return true;
     } else if (a_arr and b_arr) {
       // TODO: can you create a strong exception guarantee here?
-      return merge_(a_arr->from_id, b_arr->from_id) and merge_(a_arr->to_id, b_arr->to_id);
+      return merge(a_arr->from_id, b_arr->from_id) and merge(a_arr->to_id, b_arr->to_id);
     } else {
       return false;
     }
   }
 
-  void add_constraint(constraint::Constraint) { todo(); }
-
-  bool is_in(std::vector<ast::type::Element> const &a,
-             std::vector<ast::type::Element> const &b) const {
-    return std::ranges::all_of(a, [&](auto &e1) {
-      return std::ranges::any_of(b, [&](auto &e2) {
-        return e1.tag_id == e2.tag_id and m_rep.equal(e1.type_id, e2.type_id);
-      });
-    });
-  }
-
-  ast::TypeId instantiate_impl(ast::TypeId type_id, ast::TypeId variable_id, std::size_t depth) {
+  std::string type_name(std::vector<ast::entity::ModuleEntity> const &entities,
+                        std::vector<ast::Tag> const &tags, ast::TypeId t) const {
     struct Visitor {
-      ast::TypeId operator()(ast::type::Arrow const &arr) {
-        return self.store(ast::type::Arrow{
-            self.instantiate_impl(arr.from_id, variable_id, depth),
-            self.instantiate_impl(arr.to_id, variable_id, depth),
-        });
+      std::string operator()(ast::type::Arrow const &b) {
+        return "(" + self.type_name(entities, tags, b.from_id) + ") -> " +
+               self.type_name(entities, tags, b.to_id);
       }
-      ast::TypeId operator()(ast::type::ForAll const &forall) {
-        return self.instantiate_impl(forall.type_id, variable_id, depth + 1);
+      std::string operator()(ast::type::ForAll const &c) {
+        return "\\." + self.type_name(entities, tags, c.type_id);
       }
-      ast::TypeId operator()(ast::type::DeBruijnIndex const &index) {
-        return index.value == depth ? variable_id : type_id;
-      }
-      ast::TypeId operator()(ast::type::Variant const &) { todo(); }
-      ast::TypeId operator()(ast::type::Struct const &) { todo(); }
-      ast::TypeId operator()(ast::type::Application const &app) {
-        return self.store(ast::type::Application{
-            self.instantiate_impl(app.function_id, variable_id, depth),
-            self.instantiate_impl(app.argument_id, variable_id, depth),
-        });
-      }
-      ast::TypeId operator()(ast::type::Variable const &) { return type_id; }
-      ast::TypeId operator()(ast::type::NamedTypeReference const &) { return type_id; }
+      std::string operator()(ast::type::DeBruijnIndex const &d) { return std::to_string(d.value); }
+      std::string operator()(ast::type::Variant const &v) {
+        if (v.elements.empty()) {
+          return "[]";
+        }
 
-      TypeStorage &self;
-      ast::TypeId type_id;
-      ast::TypeId variable_id;
-      std::size_t depth;
+        std::string str = "[";
+        for (auto &[tag_id, type_id] : v.elements) {
+          str += " " + tags[tag_id.value].name.substr(1) + ": " +
+                 self.type_name(entities, tags, type_id) + ";";
+        }
+        return str + " ]";
+      }
+      std::string operator()(ast::type::Struct const &s) {
+        if (s.elements.empty()) {
+          return "{}";
+        }
+        std::string str = "{";
+        for (auto &[tag_id, type_id] : s.elements) {
+          str += " " + tags[tag_id.value].name.substr(1) + ": " +
+                 self.type_name(entities, tags, type_id) + ";";
+        }
+        return str + " }";
+      }
+      std::string operator()(ast::type::Application const &) { todo(); }
+      std::string operator()(ast::type::Variable const &) {
+        return "#" + std::to_string(self.m_rep.representative(t).value);
+      }
+      std::string operator()(ast::type::NamedTypeReference const &a) {
+        return entities[a.definition_id.value].name();
+      }
+
+      TypeStorage const &self;
+      std::vector<ast::entity::ModuleEntity> const &entities;
+      std::vector<ast::Tag> const &tags;
+      ast::TypeId t;
     };
-    return std::visit(Visitor{*this, type_id, variable_id, depth}, read(type_id).unnamed_part());
-  }
-
-  ast::TypeId instantiate(ast::TypeId type_id) {
-    return instantiate_impl(type_id, make_variable(), 0);
+    return std::visit(Visitor{*this, entities, tags, t}, read(t).unnamed_part());
   }
 
 private:
@@ -229,7 +214,7 @@ private:
     RepresentativeSets &rep;
   };
 
-  bool equal(ast::type::Type const &a, ast::type::Type const &b) const {
+  bool type_equal(ast::type::Type const &a, ast::type::Type const &b) const {
     return a.definition() == b.definition() and
            std::visit(EqualVisitor{m_rep}, a.unnamed_part(), b.unnamed_part());
   }

@@ -27,7 +27,7 @@ struct TagStorage {
     std::vector<ast::Tag> tags(m_tags.size());
     while (not m_tags.empty()) {
       auto handle = m_tags.extract(m_tags.begin());
-      tags.push_back(std::move(handle.key()));
+      tags[handle.mapped().value] = std::move(handle.key());
     }
     return tags;
   }

@@ -17,6 +17,7 @@ module;
 export module typechecker;
 
 import ast;
+import constraint;
 import resolved;
 import todo;
 import type_storage;
@@ -56,44 +57,13 @@ struct Env {
 
 struct Context {
   storage::TypeStorage &ts;
+  constraint::Solver &solver;
   std::vector<ast::entity::ModuleEntity> const &entities;
   std::vector<ast::Tag> const &tags;
   Env env;
 
   ast::entity::ModuleEntity const &entity(ast::EntityId e) const { return entities[e.value]; }
   ast::Tag const &tag(ast::TagId e) const { return tags[e.value]; }
-
-  auto fun() const {
-    return [this](ast::EntityId id) -> ast::entity::ModuleEntity const & { return entity(id); };
-  }
-
-  std::string type_name(ast::TypeId t) const {
-    if (auto a = std::get_if<ast::type::NamedTypeReference>(&ts.read(t).unnamed_part())) {
-      return entity(a->definition_id).name();
-    } else if (auto b = std::get_if<ast::type::Arrow>(&ts.read(t).unnamed_part())) {
-      return "(" + type_name(b->from_id) + ") -> " + type_name(b->to_id);
-    } else if (auto c = std::get_if<ast::type::ForAll>(&ts.read(t).unnamed_part())) {
-      return "\\." + type_name(c->type_id);
-    } else if (auto d = std::get_if<ast::type::DeBruijnIndex>(&ts.read(t).unnamed_part())) {
-      return std::to_string(d->value);
-    } else if (auto s = std::get_if<ast::type::Struct>(&ts.read(t).unnamed_part())) {
-      if (s->elements.empty()) {
-        return "{}";
-      }
-      std::string str = "{";
-      for (auto &[tag_id, type_id] : s->elements) {
-        str += " " + tag(tag_id).name.substr(1) + ": " + type_name(type_id) + ";";
-      }
-      return str + " }";
-    } else if (auto v = std::get_if<ast::type::Variant>(&ts.read(t).unnamed_part())) {
-      std::string str = "[";
-      for (auto &[tag_id, type_id] : v->elements) {
-        str += " " + tag(tag_id).name.substr(1) + ": " + type_name(type_id) + ";";
-      }
-      return str + " ]";
-    }
-    return "#" + ts.to_string(t);
-  }
 };
 
 std::expected<ast::TypeId, Error> get_entity_type(Context &ctx, TypedEntityRef entity_ref) noexcept;
@@ -111,7 +81,7 @@ std::expected<ast::TypeId, Error> get_type(Context &ctx, ast::expr::Expr const &
       }
 
       auto type_id = ctx.ts.make_variable();
-      ctx.ts.add_constraint(constraint::SubtypeOf{
+      ctx.solver.add_constraint(constraint::SubtypeOf{
           ctx.ts.store(ast::type::Arrow{*argument_type_id, type_id}),
           *function_type_id,
       });
@@ -251,7 +221,7 @@ std::expected<ast::TypeId, Error> get_entity_type(Context &ctx,
       if (not type_id) {
         todo();
       }
-      ctx.ts.add_constraint(constraint::SubtypeOf{*type_id, v->type_signature});
+      ctx.solver.add_constraint(constraint::SubtypeOf{*type_id, v->type_signature});
       return v->type_signature;
     }
     std::expected<ast::TypeId, Error> operator()(ast::entity::Binding const *binding) {
@@ -291,9 +261,11 @@ struct Visitor {
 export namespace analyser {
 
 std::expected<storage::TypeEnv, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
-  Context ctx{*ast.ts, ast.entities, ast.tags, {}};
-  std::vector<ast::TypeId> type_ids;
-  for (auto &entity : ast.entities) {
+  constraint::Solver solver;
+  Context ctx{*ast.ts, solver, ast.entities, ast.tags, {}};
+  std::vector<std::pair<std::size_t, ast::TypeId>> type_ids;
+  for (std::size_t i = 0; i < ast.entities.size(); ++i) {
+    auto &entity = ast.entities[i];
     auto result_opt = std::visit(Visitor{ctx}, entity);
     if (not result_opt) {
       continue;
@@ -302,18 +274,16 @@ std::expected<storage::TypeEnv, Error> typecheck(storage::ResolvedAST const &ast
     if (not result) {
       return std::unexpected(result.error());
     }
-    type_ids.push_back(*result);
+    type_ids.push_back({i, *result});
   }
 
-  for (std::size_t i = 0; i < ast.entities.size(); ++i) {
-    auto &type_id = type_ids[i];
-    std::cout << ctx.entity(ast::EntityId{i}).name() << " : " << ctx.type_name(type_id) << '\n';
+  for (auto &[i, type_id] : type_ids) {
+    std::cout << ctx.entity(ast::EntityId{i}).name() << " : "
+              << ctx.ts.type_name(ctx.entities, ctx.tags, type_id) << '\n';
   }
 
-  // TODO: This should not be here, but at the end of each function.
-  // if (ctx.ts.has_uninferred_types()) {
-  //   todo();
-  // }
+  std::cout << "CONSTRAINTS:\n";
+  solver.solve(ctx.entities, ctx.tags, ctx.ts);
 
   return storage::TypeEnv{ctx.env.type_of};
 }

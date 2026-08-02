@@ -9,7 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # enable sanitizers for all targets
-add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g -Og)
+add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g -O0)
 add_link_options(-fsanitize=address,undefined)
 
 # Common compiler options
@@ -27,6 +27,7 @@ target_sources(lispy
   PRIVATE
     FILE_SET CXX_MODULES
     FILES
+      src/analyser/constraint.cppm
       src/analyser/typechecker.cppm
       src/common/ast.cppm
       src/common/resolved.cppm
