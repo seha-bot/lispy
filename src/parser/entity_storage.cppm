@@ -7,18 +7,19 @@ module;
 export module entity_storage;
 
 import ast;
+import entity;
 import todo;
 
 export namespace parser {
 
 struct EntityStorage {
-  ast::EntityId reserve() {
-    ast::EntityId id(m_entities.size());
+  entity::Id reserve() {
+    entity::Id id(m_entities.size());
     m_entities.push_back(std::nullopt);
     return id;
   }
 
-  void store(ast::EntityId id, ast::entity::ModuleEntity entity) {
+  void store(entity::Id id, ast::entity::ModuleEntity entity) {
     m_entities[id.value] = std::move(entity);
   }
 

@@ -1,15 +1,17 @@
 cmake_minimum_required(VERSION 4.3.4)
 project(lispy VERSION 0.0.1 LANGUAGES CXX)
 
-set(CMAKE_BUILD_TYPE Debug)
-
 # disable standard decaying and disable extensions
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # enable sanitizers for all targets
-add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g -O0)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_compile_options(-fsanitize=address,undefined -O0)
+else()
+  add_compile_options(-fsanitize=address,undefined)
+endif()
 add_link_options(-fsanitize=address,undefined)
 
 # Common compiler options
@@ -30,8 +32,11 @@ target_sources(lispy
       src/analyser/constraint.cppm
       src/analyser/typechecker.cppm
       src/common/ast.cppm
+      src/common/entity.cppm
       src/common/resolved.cppm
+      src/common/tag.cppm
       src/common/todo.cppm
+      src/common/type.cppm
       src/common/type_storage.cppm
       src/parser/context.cppm
       src/parser/entity_storage.cppm

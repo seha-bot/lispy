@@ -6,6 +6,7 @@ module;
 export module resolved;
 
 import ast;
+import tag;
 import type_storage;
 
 export namespace storage {
@@ -14,7 +15,7 @@ struct ResolvedAST {
   ast::entity::ModuleDefinition global_module;
   std::unique_ptr<TypeStorage> ts;
   std::vector<ast::entity::ModuleEntity> entities;
-  std::vector<ast::Tag> tags;
+  std::vector<tag::Tag> tags;
 };
 
 } // namespace storage

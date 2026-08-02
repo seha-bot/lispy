@@ -9,14 +9,16 @@ module;
 export module constraint;
 
 import ast;
+import tag;
 import todo;
+import type;
 import type_storage;
 
 namespace constraint {
 
 export struct SubtypeOf {
   // a <= b
-  ast::TypeId a_id, b_id;
+  type::Id a_id, b_id;
 
   bool equal(storage::TypeStorage const &ts, SubtypeOf const &that) {
     return ts.equal(a_id, that.a_id) and ts.equal(b_id, that.b_id);
@@ -36,68 +38,68 @@ namespace {
 using Constraint = SubtypeOf;
 
 struct SubtypeOfRule {
-  void operator()(ast::type::Arrow const &a, ast::type::Arrow const &b) {
+  void operator()(type::Arrow const &a, type::Arrow const &b) {
     constraints.push_back(SubtypeOf{a.from_id, b.from_id});
     constraints.push_back(SubtypeOf{a.to_id, b.to_id});
   }
-  void operator()(ast::type::ForAll const &, ast::type::ForAll const &) { todo(); }
-  void operator()(ast::type::DeBruijnIndex const &, ast::type::DeBruijnIndex const &) { todo(); }
-  void operator()(ast::type::Variant const &a, ast::type::Variant const &b) {
+  void operator()(type::ForAll const &, type::ForAll const &) { todo(); }
+  void operator()(type::DeBruijnIndex const &, type::DeBruijnIndex const &) { todo(); }
+  void operator()(type::Variant const &a, type::Variant const &b) {
     for (auto &e1 : a.elements) {
-      auto it = std::ranges::find(b.elements, e1.tag_id, &ast::type::Element::tag_id);
+      auto it = std::ranges::find(b.elements, e1.tag_id, &type::Element::tag_id);
       if (it == b.elements.end()) {
         todo();
       }
       constraints.push_back(SubtypeOf{e1.type_id, it->type_id});
     }
   }
-  void operator()(ast::type::Struct const &a, ast::type::Struct const &b) {
+  void operator()(type::Struct const &a, type::Struct const &b) {
     for (auto &e2 : b.elements) {
-      auto it = std::ranges::find(a.elements, e2.tag_id, &ast::type::Element::tag_id);
+      auto it = std::ranges::find(a.elements, e2.tag_id, &type::Element::tag_id);
       if (it == a.elements.end()) {
         todo();
       }
       constraints.push_back(SubtypeOf{it->type_id, e2.type_id});
     }
   }
-  void operator()(ast::type::Application const &, ast::type::Application const &) { todo(); }
-  void operator()(ast::type::Variable const &, ast::type::Variable const &) { todo(); }
-  void operator()(ast::type::NamedTypeReference const &a, ast::type::NamedTypeReference const &b) {
+  void operator()(type::Application const &, type::Application const &) { todo(); }
+  void operator()(type::Variable const &, type::Variable const &) { todo(); }
+  void operator()(type::NamedTypeReference const &a, type::NamedTypeReference const &b) {
     if (a.definition_id != b.definition_id) {
       todo();
     }
   }
 
-  void operator()(ast::type::Variant const &, ast::type::NamedTypeReference const &b) {
+  void operator()(type::Variant const &, type::NamedTypeReference const &b) {
     constraints.push_back(SubtypeOf{
         a_id,
         std::get<ast::entity::TypeFormDefinition>(entities[b.definition_id.value]).type,
     });
   }
 
-  void operator()(ast::type::Variable const &, ast::type::NamedTypeReference const &) {
+  void operator()(type::Variable const &, type::NamedTypeReference const &) {
     constraints.push_back(SubtypeOf{a_id, b_id});
   }
-  void operator()(ast::type::NamedTypeReference const &, ast::type::Variable const &) {
+  void operator()(type::NamedTypeReference const &, type::Variable const &) {
     constraints.push_back(SubtypeOf{a_id, b_id});
   }
 
   // Exhaustive branches.
-  void operator()(ast::type::Arrow const &, auto &&) { todo(); }
-  void operator()(ast::type::ForAll const &, auto &&) { todo(); }
-  void operator()(ast::type::DeBruijnIndex const &, auto &&) { todo(); }
-  void operator()(ast::type::Variant const &, auto &&) { todo(); }
-  void operator()(ast::type::Struct const &, auto &&) { todo(); }
-  void operator()(ast::type::Application const &, auto &&) { todo(); }
-  void operator()(ast::type::Variable const &, auto &&) { todo(); }
-  void operator()(ast::type::NamedTypeReference const &, auto &&) { todo(); }
+  void operator()(type::Arrow const &, auto &&) { todo(); }
+  void operator()(type::ForAll const &, auto &&) { todo(); }
+  void operator()(type::DeBruijnIndex const &, auto &&) { todo(); }
+  void operator()(type::Variant const &, auto &&) { todo(); }
+  void operator()(type::Struct const &, auto &&) { todo(); }
+  void operator()(type::Application const &, auto &&) { todo(); }
+  void operator()(type::Variable const &, auto &&) { todo(); }
+  void operator()(type::NamedTypeReference const &, auto &&) { todo(); }
   void operator()(auto &&, auto &&) { todo(); }
 
   std::vector<ast::entity::ModuleEntity> const &entities;
   storage::TypeStorage const &ts;
   std::deque<Constraint> &constraints;
-  ast::TypeId a_id;
-  ast::TypeId b_id;
+  type::Id a_id;
+  type::Id b_id;
 };
 
 } // namespace
@@ -106,7 +108,7 @@ export struct Solver {
   void add_constraint(Constraint c) { m_constraints.push_back(c); }
 
   void solve(std::vector<ast::entity::ModuleEntity> const &entities,
-             std::vector<ast::Tag> const &tags, storage::TypeStorage &ts) {
+             std::vector<tag::Tag> const &tags, storage::TypeStorage &ts) {
   again:
     if (m_constraints.empty()) {
       std::cout << "Done?\n";
@@ -122,8 +124,8 @@ export struct Solver {
       std::cout << ts.type_name(entities, tags, c.a_id)
                 << " <= " << ts.type_name(entities, tags, c.b_id) << '\n';
 
-      std::visit(SubtypeOfRule{entities, ts, new_constraints, c.a_id, c.b_id},
-                 ts.read(c.a_id).unnamed_part(), ts.read(c.b_id).unnamed_part());
+      std::visit(SubtypeOfRule{entities, ts, new_constraints, c.a_id, c.b_id}, ts.read(c.a_id),
+                 ts.read(c.b_id));
     }
 
     for (std::size_t i = 0; i < new_constraints.size(); ++i) {
@@ -146,8 +148,7 @@ export struct Solver {
     }
 
     for (std::size_t i = 0; i < new_constraints.size(); ++i) {
-      auto *var =
-          std::get_if<ast::type::Variable>(&ts.read(new_constraints[i].a_id).unnamed_part());
+      auto *var = std::get_if<type::Variable>(&ts.read(new_constraints[i].a_id));
       if (var) {
         // TODO: You could make merge know that a_id is a variable, so that the merge has a 100%
         // success rate.

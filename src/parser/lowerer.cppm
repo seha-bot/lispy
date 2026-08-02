@@ -19,14 +19,17 @@ export module lowerer;
 
 import ast;
 import context;
+import entity;
 import entity_storage;
 import parsy;
 import raw_ast;
 import resolved;
 import scope;
 import shallow_ast;
+import tag;
 import tag_storage;
 import todo;
+import type;
 import type_storage;
 
 namespace parser {
@@ -132,27 +135,27 @@ template <typename A> Parser<A> list(Parser<A> parser) {
   return std::move(satisfy_list) >> std::move(parse_list_body);
 }
 
-Parser<ast::TagId> tag_parser(Context ctx) {
-  return atom_starting_with(':') | [ctx = std::move(ctx)](ExprView atom_view) -> ast::TagId {
+Parser<tag::Id> tag_parser(Context ctx) {
+  return atom_starting_with(':') | [ctx = std::move(ctx)](ExprView atom_view) -> tag::Id {
     return ctx.tags.get_tag(std::move(atom_view.head_as_atom().name));
   };
 }
 
 struct TypeLookupVisitor {
-  ast::type::Unnamed operator()(scope::TypeBinding type_binding) {
-    return ast::type::DeBruijnIndex{
+  type::Type operator()(scope::TypeBinding type_binding) {
+    return type::DeBruijnIndex{
         ctx.type_binding_relative_index(type_binding.absolute_index),
     };
   }
-  ast::type::Unnamed operator()(scope::TypeFormDefinition type_form_definition) {
-    return ast::type::NamedTypeReference{type_form_definition.id};
+  type::Type operator()(scope::TypeFormDefinition type_form_definition) {
+    return type::NamedTypeReference{type_form_definition.id};
   }
-  ast::type::Unnamed operator()(auto const &) { todo(); }
+  type::Type operator()(auto const &) { todo(); }
 
   Context const &ctx;
 };
 
-Parser<ast::TypeId> type_parser(Context ctx) noexcept {
+Parser<type::Id> type_parser(Context ctx) noexcept {
   auto rec_type_parser = [ctx] { return parsy::rec<ExprView>([ctx] { return type_parser(ctx); }); };
 
   auto name_defined = [ctx](raw_ast::Atom const &atom) { return !!ctx.scope().lookup(atom.name); };
@@ -163,7 +166,7 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
     });
   };
 
-  auto lookup = [ctx](ExprView name_view) -> ast::type::Unnamed {
+  auto lookup = [ctx](ExprView name_view) -> type::Type {
     auto scope_entry = ctx.scope().lookup(name_view.head_as_atom().name);
     if (not scope_entry) {
       todo();
@@ -171,9 +174,9 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
     return std::visit(TypeLookupVisitor{ctx}, *scope_entry);
   };
 
-  auto arrow_parser = seq(to<ast::type::Arrow>, rec_type_parser(), rec_type_parser());
+  auto arrow_parser = seq(to<type::Arrow>, rec_type_parser(), rec_type_parser());
 
-  auto forall_parser = [ctx] -> Parser<ast::type::ForAll> {
+  auto forall_parser = [ctx] -> Parser<type::ForAll> {
     // TODO: Factor this out because it's also used in expr_parser in 2 places.
     auto to_binding = [ctx](ExprView name_view) {
       auto &atom = name_view.head_as_atom();
@@ -182,27 +185,27 @@ Parser<ast::TypeId> type_parser(Context ctx) noexcept {
       return new_ctx.with_names({{atom.name, type_binding}});
     };
     auto binding_parser = atom("a type binding name") | to_binding;
-    return std::move(binding_parser) >> type_parser | to<ast::type::ForAll>;
+    return std::move(binding_parser) >> type_parser | to<type::ForAll>;
   }();
 
-  auto variant_parser = [ctx, rec_type_parser] -> Parser<ast::type::Variant> {
+  auto variant_parser = [ctx, rec_type_parser] -> Parser<type::Variant> {
     auto element_parser = any(std::array{
-        seq(to<ast::type::Element>, tag_parser(ctx), pure(ast::TypeId::unit_id)),
-        list(seq(to<ast::type::Element>, tag_parser(ctx), rec_type_parser())),
+        seq(to<type::Element>, tag_parser(ctx), pure(type::Id::unit_id)),
+        list(seq(to<type::Element>, tag_parser(ctx), rec_type_parser())),
     });
 
-    return many(std::move(element_parser)) | [](std::vector<ast::type::Element> elements) {
+    return many(std::move(element_parser)) | [](std::vector<type::Element> elements) {
       std::ranges::sort(elements, {}, [](auto &e) { return e.tag_id; });
       return elements;
-    } | to<ast::type::Variant>;
+    } | to<type::Variant>;
   }();
 
   // FIX: Sort elements by tag_id. There is common functionality in variant_parser,
   // so factor it out.
-  auto struct_parser = many(list(seq(to<ast::type::Element>, tag_parser(ctx), rec_type_parser()))) |
-                       to<ast::type::Struct>;
+  auto struct_parser =
+      many(list(seq(to<type::Element>, tag_parser(ctx), rec_type_parser()))) | to<type::Struct>;
 
-  auto store = [ctx](ast::type::Type type) { return ctx.ts.store(std::move(type)); };
+  auto store = [ctx](type::Type type) { return ctx.ts.store(std::move(type)); };
 
   return any(std::array{
       defined_name() | lookup | store,
@@ -223,7 +226,7 @@ Parser<ast::expr::Case::Choice> case_choice_parser(Context const &ctx) noexcept 
     return many(atom("a pattern binding") < peek(atom("a pattern binding")));
   };
 
-  return list(tag_parser(ctx) >> [=](ast::TagId tag_id) {
+  return list(tag_parser(ctx) >> [=](tag::Id tag_id) {
     return pattern_bindings() >> [=](std::vector<ExprView> binding_name_views) {
       std::vector<ast::entity::Binding> bindings;
       bindings.reserve(binding_name_views.size());
@@ -250,7 +253,7 @@ Parser<ast::expr::Expr> special_parser(Context const &ctx) noexcept {
   auto rec_expr_parser = [ctx] { return parsy::rec<ExprView>([ctx] { return expr_parser(ctx); }); };
 
   auto lambda_parser = [ctx] -> Parser<ast::expr::Lambda> {
-    auto to_binding = [ctx](ExprView name_view, std::optional<ast::TypeId> type) {
+    auto to_binding = [ctx](ExprView name_view, std::optional<type::Id> type) {
       auto &atom = name_view.head_as_atom();
       auto binding = alloc(ast::entity::Binding{atom.name, type});
       auto new_ctx = ctx.with_names({
@@ -484,7 +487,7 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
   }
 
   auto &shallow_entities = *shallow_entities_result;
-  std::unordered_map<std::string, std::pair<std::size_t, ast::EntityId>> entity_ids;
+  std::unordered_map<std::string, std::pair<std::size_t, entity::Id>> entity_ids;
   std::unordered_map<std::string, scope::Entry> names;
 
   for (std::size_t i = 0; i < shallow_entities.size(); ++i) {
@@ -519,7 +522,7 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
         }
         scope::Entry operator()(shallow_ast::ShallowModuleDefinition const &) { todo(); }
 
-        ast::EntityId id;
+        entity::Id id;
       };
       auto id = ctx.es.reserve();
       entity_ids.insert({name, {i, id}});

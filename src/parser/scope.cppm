@@ -12,6 +12,7 @@ module;
 export module scope;
 
 import ast;
+import entity;
 
 export namespace parser::scope {
 
@@ -19,19 +20,19 @@ struct TypeBinding {
   std::size_t absolute_index;
 };
 struct TypeFormDefinition {
-  ast::EntityId id;
+  entity::Id id;
 };
 struct Binding {
   ast::entity::Binding *binding_ptr;
 };
 struct ValueDeclaration {
-  ast::EntityId id;
+  entity::Id id;
 };
 struct ValueDefinition {
-  ast::EntityId id;
+  entity::Id id;
 };
 struct MergedValueDefinition {
-  ast::EntityId id;
+  entity::Id id;
 };
 
 using EntryBase = std::variant<TypeBinding, TypeFormDefinition, Binding, ValueDeclaration,

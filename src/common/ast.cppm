@@ -1,6 +1,5 @@
 module;
 
-#include <cstddef>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -10,31 +9,11 @@ module;
 
 export module ast;
 
+import entity;
+import tag;
+import type;
+
 export namespace ast {
-
-struct TypeId {
-  /// Special value which represents the unit type.
-  static const TypeId unit_id;
-
-  std::size_t value;
-};
-
-constexpr TypeId TypeId::unit_id = {.value = static_cast<std::size_t>(-1)};
-
-struct Tag {
-  bool operator==(Tag const &) const = default;
-  std::string name;
-};
-
-struct TagId {
-  auto operator<=>(TagId const &) const = default;
-  std::size_t value;
-};
-
-struct EntityId {
-  bool operator==(EntityId const &) const = default;
-  std::size_t value;
-};
 
 namespace expr {
 struct Expr;
@@ -44,7 +23,7 @@ namespace entity {
 
 struct ValueDeclaration {
   std::string name;
-  TypeId type_signature;
+  type::Id type_signature;
 };
 
 struct ValueDefinition {
@@ -54,18 +33,18 @@ struct ValueDefinition {
 
 struct MergedValueDefinition {
   std::string name;
-  TypeId type_signature;
+  type::Id type_signature;
   std::unique_ptr<expr::Expr> value;
 };
 
 struct TypeFormDefinition {
   std::string name;
-  TypeId type;
+  type::Id type;
 };
 
 struct Binding {
   std::string name;
-  std::optional<TypeId> type;
+  std::optional<type::Id> type;
 };
 
 struct TypeBinding {
@@ -110,7 +89,7 @@ struct Application {
 
 struct Case {
   struct Pattern {
-    TagId tag;
+    tag::Id tag;
     std::vector<entity::Binding> bindings;
   };
 
@@ -121,13 +100,13 @@ struct Case {
 };
 
 struct Variant {
-  TagId tag_id;
+  tag::Id tag_id;
   std::optional<std::unique_ptr<Expr>> value;
 };
 
 // This looks a lot like Variant above. Hmmm...
 struct TaggedValue {
-  TagId tag_id;
+  tag::Id tag_id;
   std::unique_ptr<Expr> value;
 };
 
@@ -150,7 +129,7 @@ struct ValueReference {
   //              entity::MergedValueDefinition const *>
   //     entity;
   // TODO: This is guaranteed to be one from the comment above.
-  EntityId value_entity_id;
+  ::entity::Id value_entity_id;
 };
 
 struct BindingReference {
@@ -170,95 +149,4 @@ struct Case::Choice {
 
 } // namespace expr
 
-namespace type {
-
-struct Arrow {
-  TypeId from_id;
-  TypeId to_id;
-};
-
-// This is indexed by De Bruijn indices to simplify merging.
-struct ForAll {
-  TypeId type_id;
-};
-
-struct DeBruijnIndex {
-  std::size_t value;
-};
-
-struct Element {
-  TagId tag_id;
-  TypeId type_id;
-};
-
-struct Variant {
-  // FIX: DO NOT RELY ON THIS PLEASE!
-  // It is safe to assume that this is sorted by tag_id.
-  std::vector<Element> elements;
-};
-
-struct Struct {
-  // FIX: DO NOT RELY ON THIS PLEASE!
-  // It is safe to assume that this is sorted by tag_id.
-  std::vector<Element> elements;
-};
-
-struct Application {
-  TypeId function_id;
-  TypeId argument_id;
-};
-
-// Each object represents a unique variable.
-struct Variable {};
-
-struct NamedTypeReference {
-  // TODO: Strongly type this so that it's guaranteed it represents a TypeFormDefinition.
-  EntityId definition_id;
-};
-
-using UnnamedBase = std::variant<Arrow, ForAll, DeBruijnIndex, Variant, Struct, Application,
-                                 Variable, NamedTypeReference>;
-struct Unnamed : UnnamedBase {
-  using UnnamedBase::variant;
-};
-
-// FIX: Dude... this is unused...
-struct Named {
-  Unnamed type;
-  std::reference_wrapper<entity::TypeFormDefinition const> definition;
-};
-
-using TypeBase = std::variant<Unnamed, Named>;
-struct Type : TypeBase {
-  using TypeBase::variant;
-
-  entity::TypeFormDefinition const *definition() const {
-    struct Visitor {
-      entity::TypeFormDefinition const *operator()(Unnamed const &) { return nullptr; }
-      entity::TypeFormDefinition const *operator()(Named const &t) { return &t.definition.get(); }
-    };
-    return std::visit(Visitor{}, *this);
-  }
-
-  Unnamed const &unnamed_part() const {
-    struct Visitor {
-      Unnamed const &operator()(Unnamed const &t) { return t; }
-      Unnamed const &operator()(Named const &t) { return t.type; }
-    };
-    return std::visit(Visitor{}, *this);
-  }
-};
-
-} // namespace type
-
 } // namespace ast
-
-export template <> struct std::hash<ast::EntityId> {
-  static std::size_t operator()(ast::EntityId const &id) noexcept { return id.value; }
-};
-
-export template <> struct std::hash<ast::Tag> {
-  static std::size_t operator()(ast::Tag const &tag) noexcept {
-    return std::hash<std::string>{}(tag.name);
-  }
-};
