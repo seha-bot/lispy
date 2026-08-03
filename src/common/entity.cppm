@@ -45,9 +45,8 @@ struct ModuleDefinition {
 };
 
 template <typename Expr>
-using ModuleEntityBase =
-    std::variant<ValueDeclaration, ValueDefinition<Expr>, MergedValueDefinition<Expr>,
-                 TypeFormDefinition, ModuleDefinition>;
+using ModuleEntityBase = std::variant<ValueDeclaration, ValueDefinition<Expr>,
+                                      MergedValueDefinition<Expr>, ModuleDefinition>;
 
 template <typename Expr> struct ModuleEntity : ModuleEntityBase<Expr> {
   using ModuleEntityBase<Expr>::ModuleEntityBase;

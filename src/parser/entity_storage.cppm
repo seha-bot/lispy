@@ -24,7 +24,19 @@ struct EntityStorage {
     m_entities[id.value] = std::move(entity);
   }
 
-  std::vector<entity::ModuleEntity<ast::expr::Expr>> finalize() && {
+  id::FormId reserve_form() {
+    id::FormId id{{.value = m_forms.size()}};
+    m_forms.push_back(std::nullopt);
+    return id;
+  }
+
+  void store_form(id::FormId id, entity::TypeFormDefinition entity) {
+    m_forms[id.value] = std::move(entity);
+  }
+
+  std::pair<std::vector<entity::ModuleEntity<ast::expr::Expr>>,
+            std::vector<entity::TypeFormDefinition>>
+  finalize() && {
     std::vector<entity::ModuleEntity<ast::expr::Expr>> entities;
     entities.reserve(m_entities.size());
     for (auto &entity : m_entities) {
@@ -33,11 +45,21 @@ struct EntityStorage {
       }
       entities.push_back(*std::move(entity));
     }
-    return entities;
+
+    std::vector<entity::TypeFormDefinition> forms;
+    forms.reserve(m_forms.size());
+    for (auto &form : m_forms) {
+      if (not form) {
+        todo();
+      }
+      forms.push_back(*std::move(form));
+    }
+    return std::make_pair(std::move(entities), std::move(forms));
   }
 
 private:
   std::vector<std::optional<entity::ModuleEntity<ast::expr::Expr>>> m_entities;
+  std::vector<std::optional<entity::TypeFormDefinition>> m_forms;
 };
 
 } // namespace parser

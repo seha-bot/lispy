@@ -50,8 +50,7 @@ struct Application {
 struct Variable {};
 
 struct NamedTypeReference {
-  // TODO: Strongly type this so that it's guaranteed it represents a TypeFormDefinition.
-  id::EntityId definition_id;
+  id::FormId definition_id;
 };
 
 using TypeBase = std::variant<Arrow, ForAll, DeBruijnIndex, Variant, Struct, Application, Variable,

@@ -120,15 +120,15 @@ struct TypeStorage {
     }
   }
 
-  std::string type_name(std::vector<entity::ModuleEntity<ast::expr::Expr>> const &entities,
+  std::string type_name(std::vector<entity::TypeFormDefinition> const &forms,
                         std::vector<tag::Tag> const &tags, id::TypeId t) const {
     struct Visitor {
       std::string operator()(type::Arrow const &b) {
-        return "(" + self.type_name(entities, tags, b.from_id) + ") -> " +
-               self.type_name(entities, tags, b.to_id);
+        return "(" + self.type_name(forms, tags, b.from_id) + ") -> " +
+               self.type_name(forms, tags, b.to_id);
       }
       std::string operator()(type::ForAll const &c) {
-        return "\\." + self.type_name(entities, tags, c.type_id);
+        return "\\." + self.type_name(forms, tags, c.type_id);
       }
       std::string operator()(type::DeBruijnIndex const &d) { return std::to_string(d.value); }
       std::string operator()(type::Variant const &v) {
@@ -139,7 +139,7 @@ struct TypeStorage {
         std::string str = "[";
         for (auto &[tag_id, type_id] : v.elements) {
           str += " " + tags[tag_id.value].name.substr(1) + ": " +
-                 self.type_name(entities, tags, type_id) + ";";
+                 self.type_name(forms, tags, type_id) + ";";
         }
         return str + " ]";
       }
@@ -150,7 +150,7 @@ struct TypeStorage {
         std::string str = "{";
         for (auto &[tag_id, type_id] : s.elements) {
           str += " " + tags[tag_id.value].name.substr(1) + ": " +
-                 self.type_name(entities, tags, type_id) + ";";
+                 self.type_name(forms, tags, type_id) + ";";
         }
         return str + " }";
       }
@@ -159,15 +159,15 @@ struct TypeStorage {
         return "#" + std::to_string(self.m_rep.representative(t).value);
       }
       std::string operator()(type::NamedTypeReference const &a) {
-        return entities[a.definition_id.value].name();
+        return forms[a.definition_id.value].name;
       }
 
       TypeStorage const &self;
-      std::vector<entity::ModuleEntity<ast::expr::Expr>> const &entities;
+      std::vector<entity::TypeFormDefinition> const &forms;
       std::vector<tag::Tag> const &tags;
       id::TypeId t;
     };
-    return std::visit(Visitor{*this, entities, tags, t}, read(t));
+    return std::visit(Visitor{*this, forms, tags, t}, read(t));
   }
 
 private:

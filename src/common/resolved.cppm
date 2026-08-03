@@ -17,6 +17,7 @@ struct ResolvedAST {
   entity::ModuleDefinition global_module;
   std::unique_ptr<TypeStorage> ts;
   std::vector<entity::ModuleEntity<ast::expr::Expr>> entities;
+  std::vector<entity::TypeFormDefinition> forms;
   std::vector<tag::Tag> tags;
 };
 

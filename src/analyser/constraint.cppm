@@ -15,8 +15,24 @@ import tag;
 import todo;
 import type;
 import type_storage;
+import typed_expr;
 
 namespace constraint {
+
+using TypedValueEntityBase =
+    std::variant<entity::ValueDeclaration, entity::MergedValueDefinition<typed_expr::Expr>>;
+
+export struct TypedValueEntity : TypedValueEntityBase {
+  using TypedValueEntityBase::TypedValueEntityBase;
+
+  id::TypeId type_id() const {
+    return std::visit([](auto &x) { return x.type_signature; }, *this);
+  }
+
+  std::string const &name() const {
+    return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
+  }
+};
 
 export struct SubtypeOf {
   // a <= b
@@ -73,10 +89,7 @@ struct SubtypeOfRule {
   }
 
   void operator()(type::Variant const &, type::NamedTypeReference const &b) {
-    constraints.push_back(SubtypeOf{
-        a_id,
-        std::get<entity::TypeFormDefinition>(entities[b.definition_id.value]).type,
-    });
+    constraints.push_back(SubtypeOf{a_id, forms[b.definition_id.value].type});
   }
 
   void operator()(type::Variable const &, type::NamedTypeReference const &) {
@@ -97,7 +110,7 @@ struct SubtypeOfRule {
   void operator()(type::NamedTypeReference const &, auto &&) { todo(); }
   void operator()(auto &&, auto &&) { todo(); }
 
-  std::vector<entity::ModuleEntity<ast::expr::Expr>> const &entities;
+  std::vector<entity::TypeFormDefinition> const &forms;
   storage::TypeStorage const &ts;
   std::deque<Constraint> &constraints;
   id::TypeId a_id;
@@ -109,11 +122,14 @@ struct SubtypeOfRule {
 export struct Solver {
   void add_constraint(Constraint c) { m_constraints.push_back(c); }
 
-  void solve(std::vector<entity::ModuleEntity<ast::expr::Expr>> const &entities,
+  void solve(std::vector<TypedValueEntity> entities, std::vector<entity::TypeFormDefinition> forms,
              std::vector<tag::Tag> const &tags, storage::TypeStorage &ts) {
   again:
     if (m_constraints.empty()) {
       std::cout << "Done?\n";
+      for (auto &entity : entities) {
+        std::cout << entity.name() << " : " << ts.type_name(forms, tags, entity.type_id()) << '\n';
+      }
       todo();
     }
 
@@ -123,19 +139,18 @@ export struct Solver {
       auto c = m_constraints.front();
       m_constraints.pop_front();
 
-      std::cout << ts.type_name(entities, tags, c.a_id)
-                << " <= " << ts.type_name(entities, tags, c.b_id) << '\n';
+      std::cout << ts.type_name(forms, tags, c.a_id) << " <= " << ts.type_name(forms, tags, c.b_id)
+                << '\n';
 
-      std::visit(SubtypeOfRule{entities, ts, new_constraints, c.a_id, c.b_id}, ts.read(c.a_id),
+      std::visit(SubtypeOfRule{forms, ts, new_constraints, c.a_id, c.b_id}, ts.read(c.a_id),
                  ts.read(c.b_id));
     }
 
     for (std::size_t i = 0; i < new_constraints.size(); ++i) {
       for (std::size_t j = i + 1; j < new_constraints.size(); ++j) {
         if (new_constraints[i].equal(ts, new_constraints[j])) {
-          std::cout << "Erasing (duplicate): "
-                    << ts.type_name(entities, tags, new_constraints[i].a_id)
-                    << " <= " << ts.type_name(entities, tags, new_constraints[i].b_id) << '\n';
+          std::cout << "Erasing (duplicate): " << ts.type_name(forms, tags, new_constraints[i].a_id)
+                    << " <= " << ts.type_name(forms, tags, new_constraints[i].b_id) << '\n';
           new_constraints.erase(new_constraints.begin() + static_cast<std::ptrdiff_t>(j));
           --j;
         }
@@ -154,8 +169,8 @@ export struct Solver {
       if (var) {
         // TODO: You could make merge know that a_id is a variable, so that the merge has a 100%
         // success rate.
-        std::cout << "Merging " << ts.type_name(entities, tags, new_constraints[i].a_id) << " and "
-                  << ts.type_name(entities, tags, new_constraints[i].b_id) << '\n';
+        std::cout << "Merging " << ts.type_name(forms, tags, new_constraints[i].a_id) << " and "
+                  << ts.type_name(forms, tags, new_constraints[i].b_id) << '\n';
         if (not ts.merge(new_constraints[i].a_id, new_constraints[i].b_id)) {
           todo();
         }

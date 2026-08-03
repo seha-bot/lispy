@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  auto type_env = analyser::typecheck(*ast->ts, ast->tags, std::move(ast->entities));
+  auto type_env = analyser::typecheck(*ast->ts, ast->tags, ast->forms, std::move(ast->entities));
   if (not type_env) {
     std::cerr << type_env.error() << '\n';
     return EXIT_FAILURE;

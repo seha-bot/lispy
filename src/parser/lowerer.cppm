@@ -491,6 +491,7 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
 
   auto &shallow_entities = *shallow_entities_result;
   std::unordered_map<std::string, std::pair<std::size_t, id::EntityId>> entity_ids;
+  std::unordered_map<std::string, std::pair<std::size_t, id::FormId>> form_ids;
   std::unordered_map<std::string, scope::Entry> names;
 
   for (std::size_t i = 0; i < shallow_entities.size(); ++i) {
@@ -512,37 +513,68 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
     } else {
       struct Visitor {
         scope::Entry operator()(shallow_ast::ShallowValueDeclaration const &) {
+          auto const id = es.reserve();
+          entity_ids.insert({std::move(name), {i, id}});
           return scope::ValueDeclaration{id};
         }
         scope::Entry operator()(shallow_ast::ShallowValueDefinition const &) {
+          auto const id = es.reserve();
+          entity_ids.insert({std::move(name), {i, id}});
           return scope::ValueDefinition{id};
         }
         scope::Entry operator()(shallow_ast::ShallowMergedValueDefinition const &) {
+          auto const id = es.reserve();
+          entity_ids.insert({std::move(name), {i, id}});
           return scope::MergedValueDefinition{id};
         }
         scope::Entry operator()(shallow_ast::ShallowTypeFormDefinition const &) {
+          auto const id = es.reserve_form();
+          form_ids.insert({std::move(name), {i, id}});
           return scope::TypeFormDefinition{id};
         }
         scope::Entry operator()(shallow_ast::ShallowModuleDefinition const &) { todo(); }
 
-        id::EntityId id;
+        std::unordered_map<std::string, std::pair<std::size_t, id::EntityId>> &entity_ids;
+        std::unordered_map<std::string, std::pair<std::size_t, id::FormId>> &form_ids;
+        EntityStorage &es;
+        std::string name;
+        std::size_t i;
       };
-      auto id = ctx.es.reserve();
-      entity_ids.insert({name, {i, id}});
-      names.insert({name, std::visit(Visitor{id}, shallow_entity)});
+      names.insert({
+          name,
+          std::visit(Visitor{entity_ids, form_ids, ctx.es, name, i}, shallow_entity),
+      });
     }
   }
   auto new_ctx = ctx.with_names(std::move(names));
 
+  for (auto &[_, index_and_id] : form_ids) {
+    auto [i, id] = index_and_id;
+    auto *form = std::get_if<shallow_ast::ShallowTypeFormDefinition>(&shallow_entities[i]);
+    if (not form) {
+      todo();
+    }
+    auto result = shallow::lower_entity(new_ctx, std::move(*form));
+    if (not result) {
+      todo();
+    }
+    ctx.es.store_form(id, *std::move(result));
+  }
+
   for (auto &[_, index_and_id] : entity_ids) {
     auto [i, id] = index_and_id;
     auto visitor = [&](auto shallow_entity) -> std::expected<void, parsy::ParseError<ExprView>> {
-      auto result = shallow::lower_entity(new_ctx, std::move(shallow_entity));
-      if (not result) {
-        return std::unexpected(std::move(result.error()));
+      if constexpr (std::same_as<decltype(shallow_entity),
+                                 shallow_ast::ShallowTypeFormDefinition>) {
+        std::unreachable();
+      } else {
+        auto result = shallow::lower_entity(new_ctx, std::move(shallow_entity));
+        if (not result) {
+          return std::unexpected(std::move(result.error()));
+        }
+        ctx.es.store(id, *std::move(result));
+        return {};
       }
-      ctx.es.store(id, *std::move(result));
-      return {};
     };
     auto result = std::visit(visitor, std::move(shallow_entities[i]));
     if (not result) {
@@ -571,13 +603,10 @@ lower_ast(std::string filename, std::vector<raw_ast::Expr> ast) noexcept {
   if (not module_definition) {
     return std::unexpected(module_definition.error());
   }
-  auto e = std::move(es).finalize();
+  auto [e, f] = std::move(es).finalize();
   auto t = std::move(tags).finalize();
   return storage::ResolvedAST{
-      *std::move(module_definition),
-      std::move(ts),
-      std::move(e),
-      std::move(t),
+      *std::move(module_definition), std::move(ts), std::move(e), std::move(f), std::move(t),
   };
 }
 

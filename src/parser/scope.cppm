@@ -20,7 +20,7 @@ struct TypeBinding {
   std::size_t absolute_index;
 };
 struct TypeFormDefinition {
-  id::EntityId id;
+  id::FormId id;
 };
 struct Binding {
   entity::Binding *binding_ptr;

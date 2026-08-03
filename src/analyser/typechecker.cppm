@@ -250,27 +250,14 @@ struct ValueEntity : ValueEntityBase {
   using ValueEntityBase::ValueEntityBase;
 };
 
-using TypedValueEntityBase =
-    std::variant<entity::ValueDeclaration, entity::MergedValueDefinition<typed_expr::Expr>>;
-
-struct TypedValueEntity : TypedValueEntityBase {
-  using TypedValueEntityBase::TypedValueEntityBase;
-
-  id::TypeId type_id() const {
-    return std::visit([](auto &x) { return x.type_signature; }, *this);
-  }
-
-  std::string const &name() const {
-    return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
-  }
-};
-
-std::expected<TypedValueEntity, Error> typecheck_entity(Context &ctx, ValueEntity entity) noexcept {
+std::expected<constraint::TypedValueEntity, Error> typecheck_entity(Context &ctx,
+                                                                    ValueEntity entity) noexcept {
   struct Visitor {
-    std::expected<TypedValueEntity, Error> operator()(entity::ValueDeclaration val_decl) {
+    std::expected<constraint::TypedValueEntity, Error>
+    operator()(entity::ValueDeclaration val_decl) {
       return val_decl;
     }
-    std::expected<TypedValueEntity, Error>
+    std::expected<constraint::TypedValueEntity, Error>
     operator()(entity::ValueDefinition<ast::expr::Expr> definition) {
       auto value = get_type(ctx, std::move(*definition.value));
       if (not value) {
@@ -282,7 +269,7 @@ std::expected<TypedValueEntity, Error> typecheck_entity(Context &ctx, ValueEntit
           .value = std::make_unique<typed_expr::Expr>(*std::move(value)),
       };
     }
-    std::expected<TypedValueEntity, Error>
+    std::expected<constraint::TypedValueEntity, Error>
     operator()(entity::MergedValueDefinition<ast::expr::Expr> definition) {
       auto value = get_type(ctx, std::move(*definition.value));
       if (not value) {
@@ -299,11 +286,12 @@ std::expected<TypedValueEntity, Error> typecheck_entity(Context &ctx, ValueEntit
     Context &ctx;
   };
 
-  return std::visit(Visitor{ctx}, std::move(entity)).transform([&](TypedValueEntity typed_entity) {
-    auto entity_ref = std::visit([](auto &x) -> TypedEntityRef { return &x; }, entity);
-    ctx.env.memoize(entity_ref, typed_entity.type_id());
-    return typed_entity;
-  });
+  return std::visit(Visitor{ctx}, std::move(entity))
+      .transform([&](constraint::TypedValueEntity typed_entity) {
+        auto entity_ref = std::visit([](auto &x) -> TypedEntityRef { return &x; }, entity);
+        ctx.env.memoize(entity_ref, typed_entity.type_id());
+        return typed_entity;
+      });
 }
 
 } // namespace
@@ -312,13 +300,14 @@ export namespace analyser {
 
 std::expected<void, Error>
 typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
+          std::vector<entity::TypeFormDefinition> const &forms,
           std::vector<entity::ModuleEntity<ast::expr::Expr>> entities) noexcept {
   constraint::Solver solver;
   Context ctx{ts, solver, entities, tags, {}};
-  std::vector<TypedValueEntity> typed_entities;
+  std::vector<constraint::TypedValueEntity> typed_entities;
   for (auto &entity : entities) {
     auto result_opt = std::visit(
-        [&ctx](auto &entity) -> std::optional<std::expected<TypedValueEntity, Error>> {
+        [&ctx](auto &entity) -> std::optional<std::expected<constraint::TypedValueEntity, Error>> {
           if constexpr (requires { typecheck_entity(ctx, std::move(entity)); }) {
             return typecheck_entity(ctx, std::move(entity));
           } else {
@@ -337,12 +326,12 @@ typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
   }
 
   for (auto &entity : typed_entities) {
-    std::cout << entity.name() << " : "
-              << ctx.ts.type_name(ctx.entities, ctx.tags, entity.type_id()) << '\n';
+    std::cout << entity.name() << " : " << ctx.ts.type_name(forms, ctx.tags, entity.type_id())
+              << '\n';
   }
 
   std::cout << "CONSTRAINTS:\n";
-  solver.solve(ctx.entities, ctx.tags, ctx.ts);
+  solver.solve(std::move(typed_entities), forms, ctx.tags, ctx.ts);
 
   return {};
 }

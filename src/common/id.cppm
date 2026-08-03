@@ -10,6 +10,7 @@ export namespace id {
 
 enum class Domain {
   entity,
+  form,
   tag,
   type,
 };
@@ -23,6 +24,8 @@ template <Domain D> struct Id {
 struct EntityId : Id<Domain::entity> {
   bool operator==(EntityId const &) const = default;
 };
+
+struct FormId : Id<Domain::form> {};
 
 struct TagId : Id<Domain::tag> {
   auto operator<=>(TagId const &) const = default;
