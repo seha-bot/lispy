@@ -11,8 +11,8 @@ module;
 
 export module scope;
 
-import ast;
 import entity;
+import id;
 
 export namespace parser::scope {
 
@@ -20,25 +20,25 @@ struct TypeBinding {
   std::size_t absolute_index;
 };
 struct TypeFormDefinition {
-  entity::Id id;
+  id::EntityId id;
 };
 struct Binding {
-  ast::entity::Binding *binding_ptr;
+  entity::Binding *binding_ptr;
 };
 struct ValueDeclaration {
-  entity::Id id;
+  id::EntityId id;
 };
 struct ValueDefinition {
-  entity::Id id;
+  id::EntityId id;
 };
 struct MergedValueDefinition {
-  entity::Id id;
+  id::EntityId id;
 };
 
 using EntryBase = std::variant<TypeBinding, TypeFormDefinition, Binding, ValueDeclaration,
                                ValueDefinition, MergedValueDefinition>;
 struct Entry : EntryBase {
-  using EntryBase::variant;
+  using EntryBase::EntryBase;
 };
 
 // TODO: Move into a separate file.
@@ -60,7 +60,7 @@ struct Scope {
     }
   }
 
-  void capture(ast::entity::Binding const &binding) {
+  void capture(entity::Binding const &binding) {
     Scope *scope = this;
     while (true) {
       for (auto &[_, entry] : scope->m_entries) {
@@ -81,12 +81,12 @@ struct Scope {
     }
   }
 
-  std::unordered_set<ast::entity::Binding const *> const &captures() const { return m_captures; }
+  std::unordered_set<entity::Binding const *> const &captures() const { return m_captures; }
 
 private:
   std::unordered_map<std::string, Entry> m_entries;
   std::shared_ptr<Scope> m_parent;
-  std::unordered_set<ast::entity::Binding const *> m_captures;
+  std::unordered_set<entity::Binding const *> m_captures;
 };
 
 } // namespace parser::scope

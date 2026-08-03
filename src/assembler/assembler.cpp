@@ -47,7 +47,7 @@ using InstructionBase =
     std::variant<NoOperandInstruction, NumberOperandInstruction, LabelOperandInstruction>;
 struct Instruction : InstructionBase {
 
-  using InstructionBase::variant;
+  using InstructionBase::InstructionBase;
 
   vm::Mnemonic mnemonic() const {
     return std::visit([](auto &i) { return i.mnemonic; }, *this);

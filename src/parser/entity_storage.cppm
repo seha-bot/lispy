@@ -8,23 +8,24 @@ export module entity_storage;
 
 import ast;
 import entity;
+import id;
 import todo;
 
 export namespace parser {
 
 struct EntityStorage {
-  entity::Id reserve() {
-    entity::Id id(m_entities.size());
+  id::EntityId reserve() {
+    id::EntityId id{{.value = m_entities.size()}};
     m_entities.push_back(std::nullopt);
     return id;
   }
 
-  void store(entity::Id id, ast::entity::ModuleEntity entity) {
+  void store(id::EntityId id, entity::ModuleEntity<ast::expr::Expr> entity) {
     m_entities[id.value] = std::move(entity);
   }
 
-  std::vector<ast::entity::ModuleEntity> finalize() && {
-    std::vector<ast::entity::ModuleEntity> entities;
+  std::vector<entity::ModuleEntity<ast::expr::Expr>> finalize() && {
+    std::vector<entity::ModuleEntity<ast::expr::Expr>> entities;
     entities.reserve(m_entities.size());
     for (auto &entity : m_entities) {
       if (not entity) {
@@ -36,7 +37,7 @@ struct EntityStorage {
   }
 
 private:
-  std::vector<std::optional<ast::entity::ModuleEntity>> m_entities;
+  std::vector<std::optional<entity::ModuleEntity<ast::expr::Expr>>> m_entities;
 };
 
 } // namespace parser

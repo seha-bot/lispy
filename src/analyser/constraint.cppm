@@ -9,6 +9,8 @@ module;
 export module constraint;
 
 import ast;
+import entity;
+import id;
 import tag;
 import todo;
 import type;
@@ -18,7 +20,7 @@ namespace constraint {
 
 export struct SubtypeOf {
   // a <= b
-  type::Id a_id, b_id;
+  id::TypeId a_id, b_id;
 
   bool equal(storage::TypeStorage const &ts, SubtypeOf const &that) {
     return ts.equal(a_id, that.a_id) and ts.equal(b_id, that.b_id);
@@ -32,7 +34,7 @@ namespace {
 // using ConstraintBase = std::variant<SubtypeOf>;
 //
 // struct Constraint : ConstraintBase {
-//   using ConstraintBase::variant;
+//   using ConstraintBase::ConstraintBase;
 // };
 
 using Constraint = SubtypeOf;
@@ -73,7 +75,7 @@ struct SubtypeOfRule {
   void operator()(type::Variant const &, type::NamedTypeReference const &b) {
     constraints.push_back(SubtypeOf{
         a_id,
-        std::get<ast::entity::TypeFormDefinition>(entities[b.definition_id.value]).type,
+        std::get<entity::TypeFormDefinition>(entities[b.definition_id.value]).type,
     });
   }
 
@@ -95,11 +97,11 @@ struct SubtypeOfRule {
   void operator()(type::NamedTypeReference const &, auto &&) { todo(); }
   void operator()(auto &&, auto &&) { todo(); }
 
-  std::vector<ast::entity::ModuleEntity> const &entities;
+  std::vector<entity::ModuleEntity<ast::expr::Expr>> const &entities;
   storage::TypeStorage const &ts;
   std::deque<Constraint> &constraints;
-  type::Id a_id;
-  type::Id b_id;
+  id::TypeId a_id;
+  id::TypeId b_id;
 };
 
 } // namespace
@@ -107,7 +109,7 @@ struct SubtypeOfRule {
 export struct Solver {
   void add_constraint(Constraint c) { m_constraints.push_back(c); }
 
-  void solve(std::vector<ast::entity::ModuleEntity> const &entities,
+  void solve(std::vector<entity::ModuleEntity<ast::expr::Expr>> const &entities,
              std::vector<tag::Tag> const &tags, storage::TypeStorage &ts) {
   again:
     if (m_constraints.empty()) {

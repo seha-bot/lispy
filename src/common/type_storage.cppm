@@ -10,6 +10,8 @@ module;
 export module type_storage;
 
 import ast;
+import entity;
+import id;
 import tag;
 import todo;
 import type;
@@ -18,24 +20,24 @@ export namespace storage {
 
 struct RepresentativeSets {
   struct Hasher {
-    static std::size_t operator()(type::Id t) noexcept { return t.value; }
+    static std::size_t operator()(id::TypeId t) noexcept { return t.value; }
   };
   struct Eq {
-    static bool operator()(type::Id a, type::Id b) noexcept { return a.value == b.value; }
+    static bool operator()(id::TypeId a, id::TypeId b) noexcept { return a.value == b.value; }
   };
-  using Map = std::unordered_map<type::Id, type::Id, Hasher, Eq>;
+  using Map = std::unordered_map<id::TypeId, id::TypeId, Hasher, Eq>;
 
   // Merges `a` into `b`.
-  void directional_merge_unchecked(Map::iterator a, type::Id b) { a->second = b; }
+  void directional_merge_unchecked(Map::iterator a, id::TypeId b) { a->second = b; }
 
-  void directional_merge(type::Id a, type::Id b) {
+  void directional_merge(id::TypeId a, id::TypeId b) {
     representative_iterator(a)->second = representative(b);
   }
 
-  bool equal(type::Id a, type::Id b) { return Eq{}(representative(a), representative(b)); }
+  bool equal(id::TypeId a, id::TypeId b) { return Eq{}(representative(a), representative(b)); }
 
-  Map::iterator representative_iterator(type::Id a) {
-    std::unordered_set<type::Id, Hasher, Eq> seen;
+  Map::iterator representative_iterator(id::TypeId a) {
+    std::unordered_set<id::TypeId, Hasher, Eq> seen;
     while (true) {
       if (not seen.insert(a).second) {
         todo();
@@ -53,7 +55,7 @@ struct RepresentativeSets {
     }
   }
 
-  type::Id representative(type::Id a) { return representative_iterator(a)->first; }
+  id::TypeId representative(id::TypeId a) { return representative_iterator(a)->first; }
 
   Map m_root;
 };
@@ -66,35 +68,35 @@ struct TypeStorage {
   TypeStorage &operator=(TypeStorage &&) = delete;
   ~TypeStorage() = default;
 
-  type::Id make_variable() {
-    type::Id id{m_types.size()};
+  id::TypeId make_variable() {
+    id::TypeId id{m_types.size()};
     m_types.push_back(type::Variable{});
     return id;
   }
 
-  type::Id store(type::Type type) {
+  id::TypeId store(type::Type type) {
     for (std::size_t i = 0; i < m_types.size(); ++i) {
       if (type_equal(m_types[i], type)) {
-        return type::Id{i};
+        return id::TypeId{i};
       }
     }
-    type::Id id{m_types.size()};
+    id::TypeId id{m_types.size()};
     m_types.push_back(std::move(type));
     return id;
   }
 
-  type::Type const &read(type::Id id) const {
-    if (id.value == type::Id::unit_id.value) {
+  type::Type const &read(id::TypeId id) const {
+    if (id.value == id::TypeId::unit_id.value) {
       static type::Type const unit{type::Struct{}};
       return unit;
     }
     return m_types.at(m_rep.representative(id).value);
   }
 
-  bool equal(type::Id a_id, type::Id b_id) const { return m_rep.equal(a_id, b_id); }
+  bool equal(id::TypeId a_id, id::TypeId b_id) const { return m_rep.equal(a_id, b_id); }
 
   /// If this returns false, then the entire TypeStorage is in an invalid state.
-  [[nodiscard]] bool merge(type::Id a_id, type::Id b_id) {
+  [[nodiscard]] bool merge(id::TypeId a_id, id::TypeId b_id) {
     auto a_rep_it = m_rep.representative_iterator(a_id);
     auto b_rep_it = m_rep.representative_iterator(b_id);
     auto &a = m_types[a_rep_it->first.value];
@@ -118,8 +120,8 @@ struct TypeStorage {
     }
   }
 
-  std::string type_name(std::vector<ast::entity::ModuleEntity> const &entities,
-                        std::vector<tag::Tag> const &tags, type::Id t) const {
+  std::string type_name(std::vector<entity::ModuleEntity<ast::expr::Expr>> const &entities,
+                        std::vector<tag::Tag> const &tags, id::TypeId t) const {
     struct Visitor {
       std::string operator()(type::Arrow const &b) {
         return "(" + self.type_name(entities, tags, b.from_id) + ") -> " +
@@ -161,9 +163,9 @@ struct TypeStorage {
       }
 
       TypeStorage const &self;
-      std::vector<ast::entity::ModuleEntity> const &entities;
+      std::vector<entity::ModuleEntity<ast::expr::Expr>> const &entities;
       std::vector<tag::Tag> const &tags;
-      type::Id t;
+      id::TypeId t;
     };
     return std::visit(Visitor{*this, entities, tags, t}, read(t));
   }
@@ -224,7 +226,7 @@ private:
 };
 
 struct TypeEnv {
-  std::unordered_map<ast::expr::Expr const *, type::Id> type_of;
+  std::unordered_map<ast::expr::Expr const *, id::TypeId> type_of;
 };
 
 } // namespace storage

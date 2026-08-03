@@ -6,28 +6,18 @@ module;
 
 export module type;
 
-import entity;
-import tag;
+import id;
 
 export namespace type {
 
-struct Id {
-  /// Special value which represents the unit type.
-  static const Id unit_id;
-
-  std::size_t value;
-};
-
-constexpr Id Id::unit_id = {.value = static_cast<std::size_t>(-1)};
-
 struct Arrow {
-  Id from_id;
-  Id to_id;
+  id::TypeId from_id;
+  id::TypeId to_id;
 };
 
 // This is indexed by De Bruijn indices to simplify merging.
 struct ForAll {
-  Id type_id;
+  id::TypeId type_id;
 };
 
 struct DeBruijnIndex {
@@ -35,8 +25,8 @@ struct DeBruijnIndex {
 };
 
 struct Element {
-  tag::Id tag_id;
-  Id type_id;
+  id::TagId tag_id;
+  id::TypeId type_id;
 };
 
 struct Variant {
@@ -52,8 +42,8 @@ struct Struct {
 };
 
 struct Application {
-  Id function_id;
-  Id argument_id;
+  id::TypeId function_id;
+  id::TypeId argument_id;
 };
 
 // Each object represents a unique variable.
@@ -61,13 +51,13 @@ struct Variable {};
 
 struct NamedTypeReference {
   // TODO: Strongly type this so that it's guaranteed it represents a TypeFormDefinition.
-  entity::Id definition_id;
+  id::EntityId definition_id;
 };
 
 using TypeBase = std::variant<Arrow, ForAll, DeBruijnIndex, Variant, Struct, Application, Variable,
                               NamedTypeReference>;
 struct Type : TypeBase {
-  using TypeBase::variant;
+  using TypeBase::TypeBase;
 };
 
 } // namespace type

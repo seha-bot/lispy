@@ -7,13 +7,14 @@ module;
 
 export module tag_storage;
 
+import id;
 import tag;
 
 export namespace parser {
 
 struct TagStorage {
-  tag::Id get_tag(std::string name) {
-    tag::Id const tag_id{m_tags.size()};
+  id::TagId get_tag(std::string name) {
+    id::TagId const tag_id{m_tags.size()};
     tag::Tag tag{std::move(name)};
 
     auto [iter, did_insert] = m_tags.insert({std::move(tag), tag_id});
@@ -33,7 +34,7 @@ struct TagStorage {
   }
 
 private:
-  std::unordered_map<tag::Tag, tag::Id> m_tags;
+  std::unordered_map<tag::Tag, id::TagId> m_tags;
 };
 
 } // namespace parser

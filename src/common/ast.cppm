@@ -3,80 +3,15 @@ module;
 #include <functional>
 #include <memory>
 #include <optional>
-#include <string>
 #include <variant>
 #include <vector>
 
 export module ast;
 
 import entity;
-import tag;
-import type;
+import id;
 
 export namespace ast {
-
-namespace expr {
-struct Expr;
-}
-
-namespace entity {
-
-struct ValueDeclaration {
-  std::string name;
-  type::Id type_signature;
-};
-
-struct ValueDefinition {
-  std::string name;
-  std::unique_ptr<expr::Expr> value;
-};
-
-struct MergedValueDefinition {
-  std::string name;
-  type::Id type_signature;
-  std::unique_ptr<expr::Expr> value;
-};
-
-struct TypeFormDefinition {
-  std::string name;
-  type::Id type;
-};
-
-struct Binding {
-  std::string name;
-  std::optional<type::Id> type;
-};
-
-struct TypeBinding {
-  std::string name;
-};
-
-struct ModuleEntity;
-struct ModuleDefinition {
-  std::string name;
-};
-
-using ModuleEntityBase = std::variant<ValueDeclaration, ValueDefinition, MergedValueDefinition,
-                                      TypeFormDefinition, ModuleDefinition>;
-struct ModuleEntity : ModuleEntityBase {
-  using ModuleEntityBase::variant;
-
-  std::string &name() {
-    return std::visit([](auto &e) -> std::string & { return e.name; }, *this);
-  }
-
-  std::string const &name() const {
-    return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
-  }
-};
-
-using TypedEntityBase =
-    std::variant<ValueDeclaration, ValueDefinition, MergedValueDefinition, Binding>;
-struct TypedEntity : TypedEntityBase {
-  using TypedEntityBase::variant;
-};
-
-} // namespace entity
 
 namespace expr {
 
@@ -89,7 +24,7 @@ struct Application {
 
 struct Case {
   struct Pattern {
-    tag::Id tag;
+    id::TagId tag;
     std::vector<entity::Binding> bindings;
   };
 
@@ -100,13 +35,13 @@ struct Case {
 };
 
 struct Variant {
-  tag::Id tag_id;
+  id::TagId tag_id;
   std::optional<std::unique_ptr<Expr>> value;
 };
 
 // This looks a lot like Variant above. Hmmm...
 struct TaggedValue {
-  tag::Id tag_id;
+  id::TagId tag_id;
   std::unique_ptr<Expr> value;
 };
 
@@ -129,7 +64,7 @@ struct ValueReference {
   //              entity::MergedValueDefinition const *>
   //     entity;
   // TODO: This is guaranteed to be one from the comment above.
-  ::entity::Id value_entity_id;
+  id::EntityId value_entity_id;
 };
 
 struct BindingReference {
@@ -139,7 +74,7 @@ struct BindingReference {
 using ExprBase = std::variant<Application, Case, Variant, Pack, Lambda, TVLambda, ValueReference,
                               BindingReference>;
 struct Expr : ExprBase {
-  using ExprBase::variant;
+  using ExprBase::ExprBase;
 };
 
 struct Case::Choice {

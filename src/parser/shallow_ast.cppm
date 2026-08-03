@@ -42,7 +42,7 @@ using ShallowEntityBase =
 
 // TODO: rename to entity
 struct ShallowEntity : ShallowEntityBase {
-  using ShallowEntityBase::variant;
+  using ShallowEntityBase::ShallowEntityBase;
 
   std::string const &name() const {
     return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);

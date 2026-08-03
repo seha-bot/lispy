@@ -33,6 +33,7 @@ target_sources(lispy
       src/analyser/typechecker.cppm
       src/common/ast.cppm
       src/common/entity.cppm
+      src/common/id.cppm
       src/common/resolved.cppm
       src/common/tag.cppm
       src/common/todo.cppm

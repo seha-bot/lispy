@@ -7,11 +7,6 @@ export module tag;
 
 export namespace tag {
 
-struct Id {
-  auto operator<=>(Id const &) const = default;
-  std::size_t value;
-};
-
 struct Tag {
   bool operator==(Tag const &) const = default;
   std::string name;
