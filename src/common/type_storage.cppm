@@ -225,8 +225,4 @@ private:
   std::vector<type::Type> m_types;
 };
 
-struct TypeEnv {
-  std::unordered_map<ast::expr::Expr const *, id::TypeId> type_of;
-};
-
 } // namespace storage

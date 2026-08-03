@@ -31,6 +31,7 @@ target_sources(lispy
     FILES
       src/analyser/constraint.cppm
       src/analyser/typechecker.cppm
+      src/analyser/typed_expr.cppm
       src/common/ast.cppm
       src/common/entity.cppm
       src/common/id.cppm

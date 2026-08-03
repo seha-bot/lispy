@@ -6,24 +6,25 @@ module;
 #include <variant>
 #include <vector>
 
-export module ast;
+export module typed_expr;
 
 import entity;
 import id;
 
-// TODO: You can now safely remove the ast namespace and rename this file to expr.cppm.
-export namespace ast {
-
-namespace expr {
+export namespace typed_expr {
 
 struct Expr;
 
-struct Application {
+struct Typed {
+  id::TypeId type_id;
+};
+
+struct Application : Typed {
   std::unique_ptr<Expr> function;
   std::unique_ptr<Expr> argument;
 };
 
-struct Case {
+struct Case : Typed {
   struct Pattern {
     id::TagId tag;
     std::vector<entity::Binding> bindings;
@@ -35,7 +36,7 @@ struct Case {
   std::vector<Choice> choices;
 };
 
-struct Variant {
+struct Variant : Typed {
   id::TagId tag_id;
   std::optional<std::unique_ptr<Expr>> value;
 };
@@ -46,21 +47,21 @@ struct TaggedValue {
   std::unique_ptr<Expr> value;
 };
 
-struct Pack {
+struct Pack : Typed {
   std::vector<TaggedValue> tagged_values;
 };
 
-struct Lambda {
+struct Lambda : Typed {
   std::vector<std::reference_wrapper<entity::Binding const>> captures;
   std::unique_ptr<entity::Binding> binding;
   std::unique_ptr<Expr> body;
 };
 
-struct TVLambda {
+struct TVLambda : Typed {
   std::unique_ptr<Expr> body;
 };
 
-struct ValueReference {
+struct ValueReference : Typed {
   // std::variant<entity::ValueDeclaration const *, entity::ValueDefinition const *,
   //              entity::MergedValueDefinition const *>
   //     entity;
@@ -68,7 +69,7 @@ struct ValueReference {
   id::EntityId value_entity_id;
 };
 
-struct BindingReference {
+struct BindingReference : Typed {
   std::reference_wrapper<entity::Binding const> binding;
 };
 
@@ -76,6 +77,10 @@ using ExprBase = std::variant<Application, Case, Variant, Pack, Lambda, TVLambda
                               BindingReference>;
 struct Expr : ExprBase {
   using ExprBase::ExprBase;
+
+  id::TypeId type_id() const {
+    return std::visit([](Typed const &t) { return t.type_id; }, *this);
+  }
 };
 
 struct Case::Choice {
@@ -83,6 +88,4 @@ struct Case::Choice {
   Expr arm;
 };
 
-} // namespace expr
-
-} // namespace ast
+} // namespace typed_expr
