@@ -33,11 +33,10 @@ export struct Error {
 
 namespace {
 
-using TypedEntityRefBase = std::variant<                    //
-    entity::ValueDeclaration const *,                       //
-    entity::ValueDefinition<ast::expr::Expr> const *,       //
-    entity::MergedValueDefinition<ast::expr::Expr> const *, //
-    entity::Binding const *                                 //
+using TypedEntityRefBase = std::variant<                   //
+    entity::ValueDeclaration const *,                      //
+    entity::ValueDefinition<ast::expr::Expr> const *,      //
+    entity::MergedValueDefinition<ast::expr::Expr> const * //
     >;
 
 struct TypedEntityRef : TypedEntityRefBase {
@@ -54,8 +53,12 @@ template <> struct std::hash<TypedEntityRef> {
 
 namespace {
 
-// TODO: There is a class TypeEnv in storage which is very similar to this.
 struct Env {
+  void memoize(TypedEntityRef ref, id::TypeId type_id) {
+    auto [_, did_insert] = type_of_entity.insert({ref, type_id});
+    assert(did_insert);
+  }
+
   std::unordered_map<TypedEntityRef, id::TypeId> type_of_entity;
 };
 
@@ -71,8 +74,6 @@ struct Context {
   }
   tag::Tag const &tag(id::TagId e) const { return tags[e.value]; }
 };
-
-std::expected<id::TypeId, Error> get_entity_type(Context &ctx, TypedEntityRef entity_ref) noexcept;
 
 std::expected<typed_expr::Expr, Error> get_type(Context &ctx, ast::expr::Expr expr) noexcept {
   struct Visitor {
@@ -181,17 +182,13 @@ std::expected<typed_expr::Expr, Error> get_type(Context &ctx, ast::expr::Expr ex
       return typed_expr::Pack{{type_id}, std::move(tagged_values)};
     }
     std::expected<typed_expr::Expr, Error> operator()(ast::expr::Lambda lambda) {
-      auto binding_type_id = get_entity_type(ctx, lambda.binding.get());
-      if (not binding_type_id) {
-        todo();
-      }
       auto body = get_type(ctx, std::move(*lambda.body));
       if (not body) {
         todo();
       }
       // TODO: You might not have to check for duplicates in store if binding_type_id represents a
       // fresh variable.
-      auto const type_id = ctx.ts.store(type::Arrow{*binding_type_id, body->type_id()});
+      auto const type_id = ctx.ts.store(type::Arrow{lambda.binding->type_id, body->type_id()});
       return typed_expr::Lambda{
           {type_id},
           std::move(lambda.captures),
@@ -233,7 +230,7 @@ std::expected<typed_expr::Expr, Error> get_type(Context &ctx, ast::expr::Expr ex
     }
     std::expected<typed_expr::Expr, Error> operator()(ast::expr::BindingReference binding_ref) {
       return typed_expr::BindingReference{
-          {ctx.env.type_of_entity[&binding_ref.binding.get()]},
+          {binding_ref.binding.get().type_id},
           binding_ref.binding,
       };
     }
@@ -243,61 +240,87 @@ std::expected<typed_expr::Expr, Error> get_type(Context &ctx, ast::expr::Expr ex
   return std::visit(Visitor{ctx}, std::move(expr));
 }
 
-std::expected<id::TypeId, Error> get_entity_type(Context &ctx, TypedEntityRef entity_ref) noexcept {
+using ValueEntityBase = std::variant<              //
+    entity::ValueDeclaration,                      //
+    entity::ValueDefinition<ast::expr::Expr>,      //
+    entity::MergedValueDefinition<ast::expr::Expr> //
+    >;
+
+struct ValueEntity : ValueEntityBase {
+  using ValueEntityBase::ValueEntityBase;
+};
+
+using TypedValueEntityBase =
+    std::variant<entity::ValueDeclaration, entity::MergedValueDefinition<typed_expr::Expr>>;
+
+struct TypedValueEntity : TypedValueEntityBase {
+  using TypedValueEntityBase::TypedValueEntityBase;
+
+  id::TypeId type_id() const {
+    return std::visit([](auto &x) { return x.type_signature; }, *this);
+  }
+
+  std::string const &name() const {
+    return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
+  }
+};
+
+std::expected<TypedValueEntity, Error> typecheck_entity(Context &ctx, ValueEntity entity) noexcept {
   struct Visitor {
-    std::expected<id::TypeId, Error> operator()(entity::ValueDeclaration const *val_decl) {
-      return val_decl->type_signature;
+    std::expected<TypedValueEntity, Error> operator()(entity::ValueDeclaration val_decl) {
+      return val_decl;
     }
-    std::expected<id::TypeId, Error>
-    operator()(entity::ValueDefinition<ast::expr::Expr> const *val_def) {
-      return get_type(ctx, std::move(*val_def->value))->type_id();
-    }
-    std::expected<id::TypeId, Error> operator()(entity::TypeFormDefinition const *type_form_def) {
-      return type_form_def->type;
-    }
-    std::expected<id::TypeId, Error>
-    operator()(entity::MergedValueDefinition<ast::expr::Expr> const *v) {
-      auto type_id =
-          get_type(ctx, std::move(*v->value)).transform([](auto const &x) { return x.type_id(); });
-      if (not type_id) {
+    std::expected<TypedValueEntity, Error>
+    operator()(entity::ValueDefinition<ast::expr::Expr> definition) {
+      auto value = get_type(ctx, std::move(*definition.value));
+      if (not value) {
         todo();
       }
-      ctx.solver.add_constraint(constraint::SubtypeOf{*type_id, v->type_signature});
-      return v->type_signature;
+      return entity::MergedValueDefinition<typed_expr::Expr>{
+          .name = std::move(definition.name),
+          .type_signature = value->type_id(),
+          .value = std::make_unique<typed_expr::Expr>(*std::move(value)),
+      };
     }
-    std::expected<id::TypeId, Error> operator()(entity::Binding const *binding) {
-      if (not binding->type) {
-        return ctx.ts.make_variable();
+    std::expected<TypedValueEntity, Error>
+    operator()(entity::MergedValueDefinition<ast::expr::Expr> definition) {
+      auto value = get_type(ctx, std::move(*definition.value));
+      if (not value) {
+        todo();
       }
-      return *binding->type;
+      ctx.solver.add_constraint(constraint::SubtypeOf{value->type_id(), definition.type_signature});
+      return entity::MergedValueDefinition<typed_expr::Expr>{
+          .name = std::move(definition.name),
+          .type_signature = definition.type_signature,
+          .value = std::make_unique<typed_expr::Expr>(*std::move(value)),
+      };
     }
 
     Context &ctx;
   };
 
-  auto type = std::visit(Visitor{ctx}, entity_ref);
-  if (not type) {
-    todo();
-  }
-  auto [_, did_insert] = ctx.env.type_of_entity.insert({entity_ref, *type});
-  assert(did_insert);
-  return *type;
+  return std::visit(Visitor{ctx}, std::move(entity)).transform([&](TypedValueEntity typed_entity) {
+    auto entity_ref = std::visit([](auto &x) -> TypedEntityRef { return &x; }, entity);
+    ctx.env.memoize(entity_ref, typed_entity.type_id());
+    return typed_entity;
+  });
 }
 
 } // namespace
 
 export namespace analyser {
 
-std::expected<void, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
+std::expected<void, Error>
+typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
+          std::vector<entity::ModuleEntity<ast::expr::Expr>> entities) noexcept {
   constraint::Solver solver;
-  Context ctx{*ast.ts, solver, ast.entities, ast.tags, {}};
-  std::vector<std::pair<std::size_t, id::TypeId>> type_ids;
-  for (std::size_t i = 0; i < ast.entities.size(); ++i) {
-    auto &entity = ast.entities[i];
+  Context ctx{ts, solver, entities, tags, {}};
+  std::vector<TypedValueEntity> typed_entities;
+  for (auto &entity : entities) {
     auto result_opt = std::visit(
-        [&ctx](auto const &entity) -> std::optional<std::expected<id::TypeId, Error>> {
-          if constexpr (requires { get_entity_type(ctx, &entity); }) {
-            return get_entity_type(ctx, &entity);
+        [&ctx](auto &entity) -> std::optional<std::expected<TypedValueEntity, Error>> {
+          if constexpr (requires { typecheck_entity(ctx, std::move(entity)); }) {
+            return typecheck_entity(ctx, std::move(entity));
           } else {
             return std::nullopt;
           }
@@ -306,16 +329,16 @@ std::expected<void, Error> typecheck(storage::ResolvedAST const &ast) noexcept {
     if (not result_opt) {
       continue;
     }
-    auto result = *result_opt;
+    auto result = *std::move(result_opt);
     if (not result) {
       return std::unexpected(result.error());
     }
-    type_ids.push_back({i, *result});
+    typed_entities.push_back(*std::move(result));
   }
 
-  for (auto &[i, type_id] : type_ids) {
-    std::cout << ctx.entity(id::EntityId{i}).name() << " : "
-              << ctx.ts.type_name(ctx.entities, ctx.tags, type_id) << '\n';
+  for (auto &entity : typed_entities) {
+    std::cout << entity.name() << " : "
+              << ctx.ts.type_name(ctx.entities, ctx.tags, entity.type_id()) << '\n';
   }
 
   std::cout << "CONSTRAINTS:\n";

@@ -233,7 +233,7 @@ Parser<ast::expr::Case::Choice> case_choice_parser(Context const &ctx) noexcept 
       bindings.reserve(binding_name_views.size());
       for (auto &binding_name_view : binding_name_views) {
         auto binding_name = std::move(binding_name_view.head_as_atom().name);
-        bindings.push_back(entity::Binding{std::move(binding_name), std::nullopt});
+        bindings.push_back(entity::Binding{std::move(binding_name), ctx.ts.make_variable()});
       }
 
       std::unordered_map<std::string, scope::Entry> names;
@@ -254,9 +254,9 @@ Parser<ast::expr::Expr> special_parser(Context const &ctx) noexcept {
   auto rec_expr_parser = [ctx] { return parsy::rec<ExprView>([ctx] { return expr_parser(ctx); }); };
 
   auto lambda_parser = [ctx] -> Parser<ast::expr::Lambda> {
-    auto to_binding = [ctx](ExprView name_view, std::optional<id::TypeId> type) {
+    auto to_binding = [ctx](ExprView name_view, id::TypeId type_id) {
       auto &atom = name_view.head_as_atom();
-      auto binding = alloc(entity::Binding{atom.name, type});
+      auto binding = alloc(entity::Binding{atom.name, type_id});
       auto new_ctx = ctx.with_names({
           {std::move(atom.name), scope::Binding{binding.get()}},
       });
@@ -265,7 +265,7 @@ Parser<ast::expr::Expr> special_parser(Context const &ctx) noexcept {
 
     auto binding_parser = any(std::array{
         atom("a binding name") |
-            [=](ExprView name_view) { return to_binding(name_view, std::nullopt); },
+            [=](ExprView name_view) { return to_binding(name_view, ctx.ts.make_variable()); },
         list(cut(seq(to_binding, atom("a binding name"), type_parser(ctx)))),
     });
 

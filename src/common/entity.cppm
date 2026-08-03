@@ -1,9 +1,6 @@
 module;
 
-#include <cstddef>
-#include <functional>
 #include <memory>
-#include <optional>
 #include <string>
 #include <variant>
 
@@ -36,7 +33,7 @@ struct TypeFormDefinition {
 
 struct Binding {
   std::string name;
-  std::optional<id::TypeId> type;
+  id::TypeId type_id;
 };
 
 struct TypeBinding {
