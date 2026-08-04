@@ -44,6 +44,10 @@ export struct SubtypeOf {
   }
 
   SubtypeOf flip() const { return {b_id, a_id}; }
+
+  std::string to_string(formatter::TypeContext ctx) const {
+    return formatter::type_name(ctx, a_id) + " <= " + formatter::type_name(ctx, b_id);
+  }
 };
 
 namespace {
@@ -82,7 +86,9 @@ struct SubtypeOfRule {
     }
   }
   void operator()(type::Application const &, type::Application const &) { todo(); }
-  void operator()(type::Variable const &, type::Variable const &) { todo(); }
+  void operator()(type::Variable const &, type::Variable const &) {
+    constraints.push_back(SubtypeOf{a_id, b_id});
+  }
   void operator()(type::NamedTypeReference const &a, type::NamedTypeReference const &b) {
     if (a.definition_id != b.definition_id) {
       todo();
@@ -135,30 +141,38 @@ export struct Solver {
       todo();
     }
 
+    for (std::size_t i = 0; i < m_constraints.size(); ++i) {
+      for (std::size_t j = i + 1; j < m_constraints.size(); ++j) {
+        if (m_constraints[i].equal(ts, m_constraints[j])) {
+          std::cout << "Erasing (duplicate): " << m_constraints[i].to_string({ts, forms, tags})
+                    << '\n';
+          m_constraints.erase(m_constraints.begin() + static_cast<std::ptrdiff_t>(j));
+          --j;
+        } else if (m_constraints[i].equal(ts, m_constraints[j].flip())) {
+          formatter::TypeContext ctx{ts, forms, tags};
+          std::cout << "Constraints produced equal types: " << m_constraints[i].to_string(ctx)
+                    << " and " << m_constraints[j].to_string(ctx) << '\n';
+          if (not ts.merge(m_constraints[i].a_id, m_constraints[i].b_id)) {
+            todo();
+          }
+          m_constraints.erase(m_constraints.begin() + static_cast<std::ptrdiff_t>(j));
+          m_constraints.erase(m_constraints.begin() + static_cast<std::ptrdiff_t>(i));
+          --i;
+          break;
+        }
+      }
+    }
+
     auto old_constraints = m_constraints;
     decltype(old_constraints) new_constraints;
     while (not m_constraints.empty()) {
       auto c = m_constraints.front();
       m_constraints.pop_front();
 
-      std::cout << formatter::type_name({ts, forms, tags}, c.a_id)
-                << " <= " << formatter::type_name({ts, forms, tags}, c.b_id) << '\n';
+      std::cout << c.to_string({ts, forms, tags}) << '\n';
 
       std::visit(SubtypeOfRule{forms, ts, new_constraints, c.a_id, c.b_id}, ts.read(c.a_id),
                  ts.read(c.b_id));
-    }
-
-    for (std::size_t i = 0; i < new_constraints.size(); ++i) {
-      for (std::size_t j = i + 1; j < new_constraints.size(); ++j) {
-        if (new_constraints[i].equal(ts, new_constraints[j])) {
-          std::cout << "Erasing (duplicate): "
-                    << formatter::type_name({ts, forms, tags}, new_constraints[i].a_id)
-                    << " <= " << formatter::type_name({ts, forms, tags}, new_constraints[i].b_id)
-                    << '\n';
-          new_constraints.erase(new_constraints.begin() + static_cast<std::ptrdiff_t>(j));
-          --j;
-        }
-      }
     }
 
     if (not std::ranges::equal(new_constraints, old_constraints,

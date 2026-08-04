@@ -34,43 +34,22 @@ export struct Error {
 
 namespace {
 
-using TypedEntityRefBase = std::variant<              //
-    entity::ValueDeclaration const *,                 //
-    entity::ValueDefinition<expr::Expr> const *,      //
-    entity::MergedValueDefinition<expr::Expr> const * //
-    >;
-
-struct TypedEntityRef : TypedEntityRefBase {
-  using TypedEntityRefBase::TypedEntityRefBase;
-};
-
-} // namespace
-
-template <> struct std::hash<TypedEntityRef> {
-  std::size_t operator()(TypedEntityRef const &e) const noexcept {
-    return std::visit([](auto p) { return std::hash<decltype(p)>{}(p); }, e);
-  }
-};
-
-namespace {
-
 struct Env {
-  void memoize(TypedEntityRef ref, id::TypeId type_id) {
-    auto [_, did_insert] = type_of_entity.insert({ref, type_id});
+  void memoize(id::EntityId entity_id, id::TypeId type_id) {
+    auto [_, did_insert] = type_of_entity.insert({entity_id, type_id});
     assert(did_insert);
   }
 
-  std::unordered_map<TypedEntityRef, id::TypeId> type_of_entity;
+  std::unordered_map<id::EntityId, id::TypeId> type_of_entity;
 };
 
 struct Context {
   storage::TypeStorage &ts;
   constraint::Solver &solver;
-  std::vector<entity::ModuleEntity<expr::Expr>> const &entities;
+  std::vector<entity::TypeFormDefinition> const &forms;
   std::vector<tag::Tag> const &tags;
   Env env;
 
-  entity::ModuleEntity<expr::Expr> const &entity(id::EntityId e) const { return entities[e.value]; }
   tag::Tag const &tag(id::TagId e) const { return tags[e.value]; }
 };
 
@@ -224,21 +203,7 @@ std::expected<typed_expr::Expr, Error> get_type(Context &ctx, expr::Expr expr) n
       return typed_expr::TVLambda{{type_id}, std::make_unique<typed_expr::Expr>(*std::move(body))};
     }
     std::expected<typed_expr::Expr, Error> operator()(expr::ValueReference value_ref) {
-      auto const type_id = [&] {
-        auto &entity = ctx.entity(value_ref.value_entity_id);
-        auto *dec = std::get_if<entity::ValueDeclaration>(&entity);
-        auto *def = std::get_if<entity::ValueDefinition<expr::Expr>>(&entity);
-        auto *mer = std::get_if<entity::MergedValueDefinition<expr::Expr>>(&entity);
-        if (dec) {
-          return ctx.env.type_of_entity[dec];
-        } else if (def) {
-          return ctx.env.type_of_entity[def];
-        } else if (mer) {
-          return ctx.env.type_of_entity[mer];
-        } else {
-          std::unreachable();
-        }
-      }();
+      auto const type_id = ctx.env.type_of_entity.at(value_ref.value_entity_id);
       return typed_expr::ValueReference{{type_id}, value_ref.value_entity_id};
     }
     std::expected<typed_expr::Expr, Error> operator()(expr::BindingReference binding_ref) {
@@ -302,12 +267,7 @@ std::expected<constraint::TypedValueEntity, Error> typecheck_entity(Context &ctx
     Context &ctx;
   };
 
-  return std::visit(Visitor{ctx}, std::move(entity))
-      .transform([&](constraint::TypedValueEntity typed_entity) {
-        auto entity_ref = std::visit([](auto &x) -> TypedEntityRef { return &x; }, entity);
-        ctx.env.memoize(entity_ref, typed_entity.type_id());
-        return typed_entity;
-      });
+  return std::visit(Visitor{ctx}, std::move(entity));
 }
 
 } // namespace
@@ -319,13 +279,18 @@ typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
           std::vector<entity::TypeFormDefinition> const &forms,
           std::vector<entity::ModuleEntity<expr::Expr>> entities) noexcept {
   constraint::Solver solver;
-  Context ctx{ts, solver, entities, tags, {}};
+  Context ctx{ts, solver, forms, tags, {}};
   std::vector<constraint::TypedValueEntity> typed_entities;
-  for (auto &entity : entities) {
+  for (std::size_t i = 0; i < entities.size(); ++i) {
+    auto &entity = entities[i];
     auto result_opt = std::visit(
-        [&ctx](auto &entity) -> std::optional<std::expected<constraint::TypedValueEntity, Error>> {
+        [&](auto &entity) -> std::optional<std::expected<constraint::TypedValueEntity, Error>> {
           if constexpr (requires { typecheck_entity(ctx, std::move(entity)); }) {
-            return typecheck_entity(ctx, std::move(entity));
+            return typecheck_entity(ctx, std::move(entity))
+                .transform([&](constraint::TypedValueEntity typed_entity) {
+                  ctx.env.memoize(id::EntityId{{.value = i}}, typed_entity.type_id());
+                  return typed_entity;
+                });
           } else {
             return std::nullopt;
           }
