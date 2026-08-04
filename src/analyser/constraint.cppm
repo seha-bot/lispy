@@ -8,8 +8,8 @@ module;
 
 export module constraint;
 
-import ast;
 import entity;
+import expr;
 import id;
 import tag;
 import todo;

@@ -6,15 +6,12 @@ module;
 #include <variant>
 #include <vector>
 
-export module ast;
+export module expr;
 
 import entity;
 import id;
 
-// TODO: You can now safely remove the ast namespace and rename this file to expr.cppm.
-export namespace ast {
-
-namespace expr {
+export namespace expr {
 
 struct Expr;
 
@@ -84,5 +81,3 @@ struct Case::Choice {
 };
 
 } // namespace expr
-
-} // namespace ast

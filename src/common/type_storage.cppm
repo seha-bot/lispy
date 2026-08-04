@@ -9,8 +9,8 @@ module;
 
 export module type_storage;
 
-import ast;
 import entity;
+import expr;
 import id;
 import tag;
 import todo;

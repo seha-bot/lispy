@@ -32,8 +32,8 @@ target_sources(lispy
       src/analyser/constraint.cppm
       src/analyser/typechecker.cppm
       src/analyser/typed_expr.cppm
-      src/common/ast.cppm
       src/common/entity.cppm
+      src/common/expr.cppm
       src/common/id.cppm
       src/common/resolved.cppm
       src/common/tag.cppm

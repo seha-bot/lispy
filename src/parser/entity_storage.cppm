@@ -6,8 +6,8 @@ module;
 
 export module entity_storage;
 
-import ast;
 import entity;
+import expr;
 import id;
 import todo;
 
@@ -20,7 +20,7 @@ struct EntityStorage {
     return id;
   }
 
-  void store(id::EntityId id, entity::ModuleEntity<ast::expr::Expr> entity) {
+  void store(id::EntityId id, entity::ModuleEntity<expr::Expr> entity) {
     m_entities[id.value] = std::move(entity);
   }
 
@@ -34,10 +34,9 @@ struct EntityStorage {
     m_forms[id.value] = std::move(entity);
   }
 
-  std::pair<std::vector<entity::ModuleEntity<ast::expr::Expr>>,
-            std::vector<entity::TypeFormDefinition>>
+  std::pair<std::vector<entity::ModuleEntity<expr::Expr>>, std::vector<entity::TypeFormDefinition>>
   finalize() && {
-    std::vector<entity::ModuleEntity<ast::expr::Expr>> entities;
+    std::vector<entity::ModuleEntity<expr::Expr>> entities;
     entities.reserve(m_entities.size());
     for (auto &entity : m_entities) {
       if (not entity) {
@@ -58,7 +57,7 @@ struct EntityStorage {
   }
 
 private:
-  std::vector<std::optional<entity::ModuleEntity<ast::expr::Expr>>> m_entities;
+  std::vector<std::optional<entity::ModuleEntity<expr::Expr>>> m_entities;
   std::vector<std::optional<entity::TypeFormDefinition>> m_forms;
 };
 
