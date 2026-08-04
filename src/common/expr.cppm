@@ -10,8 +10,6 @@ export module expr;
 
 import entity;
 import id;
-import tag;
-import todo;
 
 export namespace expr {
 
@@ -75,52 +73,6 @@ using ExprBase = std::variant<Application, Case, Variant, Pack, Lambda, TVLambda
                               BindingReference>;
 struct Expr : ExprBase {
   using ExprBase::ExprBase;
-
-  struct Context {
-    std::vector<entity::ModuleEntity<Expr>> const &entities;
-    std::vector<entity::TypeFormDefinition> const &forms;
-    std::vector<tag::Tag> const &tags;
-  };
-
-  void format(std::ostream &os, Context ctx, std::size_t depth) const {
-    struct Visitor {
-      void operator()(Application const &app) {
-        os << '(';
-        app.function->format(os, ctx, 0);
-        os << ' ';
-        app.argument->format(os, ctx, 0);
-        os << ')';
-      }
-      void operator()(Case const &) { todo(); }
-      void operator()(Variant const &v) {
-        if (v.value) {
-          os << '(' << ctx.tags[v.tag_id.value].name << ' ';
-          (*v.value)->format(os, ctx, 0);
-          os << ')';
-        } else {
-          os << ctx.tags[v.tag_id.value].name;
-        }
-      }
-      void operator()(Pack const &) { todo(); }
-      void operator()(Lambda const &l) {
-        // TODO: Type info.
-        os << "(lambda " << l.binding->name << ' ';
-        l.body->format(os, ctx, 0);
-        os << ')';
-      }
-      void operator()(TVLambda const &) { todo(); }
-      void operator()(ValueReference const &v) {
-        os << ctx.entities[v.value_entity_id.value].name();
-      }
-      void operator()(BindingReference const &b) { os << b.binding.get().name; }
-
-      std::ostream &os;
-      Context ctx;
-      std::size_t depth;
-    };
-    os << std::string(depth, ' ');
-    std::visit(Visitor{os, ctx, depth}, *this);
-  }
 };
 
 struct Case::Choice {

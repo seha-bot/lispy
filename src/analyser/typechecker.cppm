@@ -19,6 +19,7 @@ export module typechecker;
 import constraint;
 import entity;
 import expr;
+import formatter;
 import id;
 import resolved;
 import tag;
@@ -341,8 +342,8 @@ typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
   }
 
   for (auto &entity : typed_entities) {
-    std::cout << entity.name() << " : " << ctx.ts.type_name(forms, ctx.tags, entity.type_id())
-              << '\n';
+    std::cout << entity.name() << " : "
+              << formatter::type_name({ctx.ts, forms, ctx.tags}, entity.type_id()) << '\n';
   }
 
   std::cout << "CONSTRAINTS:\n";

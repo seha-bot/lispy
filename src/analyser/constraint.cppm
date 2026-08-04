@@ -10,6 +10,7 @@ export module constraint;
 
 import entity;
 import expr;
+import formatter;
 import id;
 import tag;
 import todo;
@@ -128,7 +129,8 @@ export struct Solver {
     if (m_constraints.empty()) {
       std::cout << "Done?\n";
       for (auto &entity : entities) {
-        std::cout << entity.name() << " : " << ts.type_name(forms, tags, entity.type_id()) << '\n';
+        std::cout << entity.name() << " : "
+                  << formatter::type_name({ts, forms, tags}, entity.type_id()) << '\n';
       }
       todo();
     }
@@ -139,8 +141,8 @@ export struct Solver {
       auto c = m_constraints.front();
       m_constraints.pop_front();
 
-      std::cout << ts.type_name(forms, tags, c.a_id) << " <= " << ts.type_name(forms, tags, c.b_id)
-                << '\n';
+      std::cout << formatter::type_name({ts, forms, tags}, c.a_id)
+                << " <= " << formatter::type_name({ts, forms, tags}, c.b_id) << '\n';
 
       std::visit(SubtypeOfRule{forms, ts, new_constraints, c.a_id, c.b_id}, ts.read(c.a_id),
                  ts.read(c.b_id));
@@ -149,8 +151,10 @@ export struct Solver {
     for (std::size_t i = 0; i < new_constraints.size(); ++i) {
       for (std::size_t j = i + 1; j < new_constraints.size(); ++j) {
         if (new_constraints[i].equal(ts, new_constraints[j])) {
-          std::cout << "Erasing (duplicate): " << ts.type_name(forms, tags, new_constraints[i].a_id)
-                    << " <= " << ts.type_name(forms, tags, new_constraints[i].b_id) << '\n';
+          std::cout << "Erasing (duplicate): "
+                    << formatter::type_name({ts, forms, tags}, new_constraints[i].a_id)
+                    << " <= " << formatter::type_name({ts, forms, tags}, new_constraints[i].b_id)
+                    << '\n';
           new_constraints.erase(new_constraints.begin() + static_cast<std::ptrdiff_t>(j));
           --j;
         }
@@ -169,8 +173,9 @@ export struct Solver {
       if (var) {
         // TODO: You could make merge know that a_id is a variable, so that the merge has a 100%
         // success rate.
-        std::cout << "Merging " << ts.type_name(forms, tags, new_constraints[i].a_id) << " and "
-                  << ts.type_name(forms, tags, new_constraints[i].b_id) << '\n';
+        std::cout << "Merging " << formatter::type_name({ts, forms, tags}, new_constraints[i].a_id)
+                  << " and " << formatter::type_name({ts, forms, tags}, new_constraints[i].b_id)
+                  << '\n';
         if (not ts.merge(new_constraints[i].a_id, new_constraints[i].b_id)) {
           todo();
         }

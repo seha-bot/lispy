@@ -5,6 +5,7 @@
 #include <string>
 #include <utility>
 
+import formatter;
 import lowerer;
 import parser;
 import typechecker;
@@ -52,7 +53,8 @@ int main(int argc, char *argv[]) {
   }
   std::cout << "2. STRUCTURED AST:\n";
   for (auto &entity : ast->entities) {
-    entity.format(std::cout, {ast->entities, ast->forms, ast->tags}, 0);
+    formatter::format_entity(std::cout, {*ast->ts, ast->entities, ast->forms, ast->tags}, 0,
+                             entity);
     std::cout << '\n';
   }
   std::cout << "STRUCTURED AST END\n";

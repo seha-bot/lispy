@@ -3,12 +3,10 @@ module;
 #include <memory>
 #include <string>
 #include <variant>
-#include <vector>
 
 export module entity;
 
 import id;
-import tag;
 import todo;
 
 export namespace entity {
@@ -60,40 +58,6 @@ template <typename Expr> struct ModuleEntity : ModuleEntityBase<Expr> {
 
   std::string const &name() const {
     return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
-  }
-
-  struct Context {
-    std::vector<ModuleEntity<Expr>> const &entities;
-    std::vector<TypeFormDefinition> const &forms;
-    std::vector<tag::Tag> const &tags;
-  };
-
-  void format(std::ostream &os, Context ctx, std::size_t depth) const {
-    struct Visitor {
-      void operator()(ValueDeclaration const &val) {
-        // TODO: Type info.
-        os << "(dec " << val.name << ')';
-      }
-      void operator()(ValueDefinition<Expr> const &val) {
-        os << "(def " << val.name << ' ';
-        val.value->format(os, {ctx.entities, ctx.forms, ctx.tags}, depth);
-        os << ')';
-      }
-      void operator()(MergedValueDefinition<Expr> const &val) {
-        // TODO: Type info.
-        os << "(dec " << val.name << ')';
-        os << "(def " << val.name << ' ';
-        val.value->format(os, {ctx.entities, ctx.forms, ctx.tags}, depth);
-        os << ')';
-      }
-      void operator()(ModuleDefinition const &) { todo(); }
-
-      std::ostream &os;
-      Context ctx;
-      std::size_t depth;
-    };
-    os << std::string(depth, ' ');
-    std::visit(Visitor{os, ctx, depth}, *this);
   }
 };
 

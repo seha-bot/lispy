@@ -1,7 +1,6 @@
 module;
 
 #include <algorithm>
-#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
@@ -9,10 +8,7 @@ module;
 
 export module type_storage;
 
-import entity;
-import expr;
 import id;
-import tag;
 import todo;
 import type;
 
@@ -120,56 +116,6 @@ struct TypeStorage {
     }
   }
 
-  std::string type_name(std::vector<entity::TypeFormDefinition> const &forms,
-                        std::vector<tag::Tag> const &tags, id::TypeId t) const {
-    struct Visitor {
-      std::string operator()(type::Arrow const &b) {
-        return "(" + self.type_name(forms, tags, b.from_id) + ") -> " +
-               self.type_name(forms, tags, b.to_id);
-      }
-      std::string operator()(type::ForAll const &c) {
-        return "\\." + self.type_name(forms, tags, c.type_id);
-      }
-      std::string operator()(type::DeBruijnIndex const &d) { return std::to_string(d.value); }
-      std::string operator()(type::Variant const &v) {
-        if (v.elements.empty()) {
-          return "[]";
-        }
-
-        std::string str = "[";
-        for (auto &[tag_id, type_id] : v.elements) {
-          str += " " + tags[tag_id.value].name.substr(1) + ": " +
-                 self.type_name(forms, tags, type_id) + ";";
-        }
-        return str + " ]";
-      }
-      std::string operator()(type::Struct const &s) {
-        if (s.elements.empty()) {
-          return "{}";
-        }
-        std::string str = "{";
-        for (auto &[tag_id, type_id] : s.elements) {
-          str += " " + tags[tag_id.value].name.substr(1) + ": " +
-                 self.type_name(forms, tags, type_id) + ";";
-        }
-        return str + " }";
-      }
-      std::string operator()(type::Application const &) { todo(); }
-      std::string operator()(type::Variable const &) {
-        return "#" + std::to_string(self.m_rep.representative(t).value);
-      }
-      std::string operator()(type::NamedTypeReference const &a) {
-        return forms[a.definition_id.value].name;
-      }
-
-      TypeStorage const &self;
-      std::vector<entity::TypeFormDefinition> const &forms;
-      std::vector<tag::Tag> const &tags;
-      id::TypeId t;
-    };
-    return std::visit(Visitor{*this, forms, tags, t}, read(t));
-  }
-
 private:
   static bool is_variable(type::Type const &type) {
     return std::holds_alternative<type::Variable>(type);
@@ -221,6 +167,8 @@ private:
     return std::visit(EqualVisitor{m_rep}, a, b);
   }
 
+  // FIX: MAKE PRIVATE!
+public:
   mutable RepresentativeSets m_rep;
   std::vector<type::Type> m_types;
 };
