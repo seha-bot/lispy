@@ -98,7 +98,11 @@ void format_expr(std::ostream &os, Context ctx, std::size_t depth, expr::Expr co
       format_expr(os, ctx, 0, *l.body);
       os << ')';
     }
-    void operator()(expr::TVLambda const &) { todo(); }
+    void operator()(expr::TVLambda const &l) {
+      os << "(tv-lambda ";
+      format_expr(os, ctx, 0, *l.body);
+      os << ')';
+    }
     void operator()(expr::ValueReference const &v) {
       os << ctx.entities[v.value_entity_id.value].name();
     }
@@ -126,7 +130,7 @@ void format_entity(std::ostream &os, Context ctx, std::size_t depth,
     }
     void operator()(entity::MergedValueDefinition<expr::Expr> const &val) {
       os << "(dec " << val.name << ' '
-         << type_name({ctx.ts, ctx.forms, ctx.tags}, val.type_signature) << ')';
+         << type_name({ctx.ts, ctx.forms, ctx.tags}, val.type_signature) << ")\n";
       os << "(def " << val.name << ' ';
       format_expr(os, ctx, depth, *val.value);
       os << ')';

@@ -116,9 +116,46 @@ struct TypeStorage {
     }
   }
 
+  id::TypeId instantiate(id::TypeId type_id) {
+    return instantiate_impl(type_id, make_variable(), 0);
+  }
+
 private:
   static bool is_variable(type::Type const &type) {
     return std::holds_alternative<type::Variable>(type);
+  }
+
+  id::TypeId instantiate_impl(id::TypeId type_id, id::TypeId variable_id, std::size_t depth) {
+    struct Visitor {
+      id::TypeId operator()(type::Arrow const &arr) {
+        return ts.store(type::Arrow{
+            ts.instantiate_impl(arr.from_id, variable_id, depth),
+            ts.instantiate_impl(arr.to_id, variable_id, depth),
+        });
+      }
+      id::TypeId operator()(type::ForAll const &forall) {
+        return ts.instantiate_impl(forall.type_id, variable_id, depth + 1);
+      }
+      id::TypeId operator()(type::DeBruijnIndex const &index) {
+        return index.value == depth ? variable_id : type_id;
+      }
+      id::TypeId operator()(type::Variant const &) { todo(); }
+      id::TypeId operator()(type::Struct const &) { todo(); }
+      id::TypeId operator()(type::Application const &app) {
+        return ts.store(type::Application{
+            ts.instantiate_impl(app.function_id, variable_id, depth),
+            ts.instantiate_impl(app.argument_id, variable_id, depth),
+        });
+      }
+      id::TypeId operator()(type::Variable const &) { return type_id; }
+      id::TypeId operator()(type::NamedTypeReference const &) { return type_id; }
+
+      TypeStorage &ts;
+      id::TypeId type_id;
+      id::TypeId variable_id;
+      std::size_t depth;
+    };
+    return std::visit(Visitor{*this, type_id, variable_id, depth}, read(type_id));
   }
 
   struct EqualVisitor {

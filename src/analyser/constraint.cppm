@@ -41,64 +41,62 @@ export struct SubtypeOf {
 namespace {
 
 struct SubtypeOfRule {
-  void operator()(type::Arrow const &a, type::Arrow const &b) {
-    constraints.push_back(SubtypeOf{a.from_id, b.from_id});
-    constraints.push_back(SubtypeOf{a.to_id, b.to_id});
-  }
-  void operator()(type::ForAll const &, type::ForAll const &) { todo(); }
-  void operator()(type::DeBruijnIndex const &, type::DeBruijnIndex const &) { todo(); }
-  void operator()(type::Variant const &a, type::Variant const &b) {
-    for (auto &e1 : a.elements) {
-      auto it = std::ranges::find(b.elements, e1.tag_id, &type::Element::tag_id);
-      if (it == b.elements.end()) {
+  template <typename A, typename B> void operator()(A const &a, B const &b) {
+    if constexpr (std::same_as<A, type::Variable> or std::same_as<B, type::Variable>) {
+      constraints.push_back(SubtypeOf{a_id, b_id});
+    } else if constexpr (std::same_as<A, type::Arrow> and std::same_as<B, type::Arrow>) {
+      constraints.push_back(SubtypeOf{a.from_id, b.from_id});
+      constraints.push_back(SubtypeOf{a.to_id, b.to_id});
+    } else if constexpr (std::same_as<A, type::ForAll> and std::same_as<B, type::ForAll>) {
+      constraints.push_back(SubtypeOf{a.type_id, b.type_id});
+    } else if constexpr (std::same_as<A, type::DeBruijnIndex> and
+                         std::same_as<B, type::DeBruijnIndex>) {
+      if (a.value != b.value) {
         todo();
       }
-      constraints.push_back(SubtypeOf{e1.type_id, it->type_id});
-    }
-  }
-  void operator()(type::Struct const &a, type::Struct const &b) {
-    for (auto &e2 : b.elements) {
-      auto it = std::ranges::find(a.elements, e2.tag_id, &type::Element::tag_id);
-      if (it == a.elements.end()) {
+    } else if constexpr (std::same_as<A, type::ForAll> and std::same_as<B, type::Arrow>) {
+      constraints.push_back(SubtypeOf{ts.instantiate(a.type_id), b_id});
+    } else if constexpr (std::same_as<A, type::Variant> and std::same_as<B, type::Variant>) {
+      for (auto &e1 : a.elements) {
+        auto it = std::ranges::find(b.elements, e1.tag_id, &type::Element::tag_id);
+        if (it == b.elements.end()) {
+          todo();
+        }
+        constraints.push_back(SubtypeOf{e1.type_id, it->type_id});
+      }
+    } else if constexpr (std::same_as<A, type::Struct> and std::same_as<B, type::Struct>) {
+      for (auto &e2 : b.elements) {
+        auto it = std::ranges::find(a.elements, e2.tag_id, &type::Element::tag_id);
+        if (it == a.elements.end()) {
+          todo();
+        }
+        constraints.push_back(SubtypeOf{it->type_id, e2.type_id});
+      }
+    } else if constexpr (std::same_as<A, type::NamedTypeReference> and
+                         std::same_as<B, type::NamedTypeReference>) {
+      if (a.definition_id != b.definition_id) {
         todo();
       }
-      constraints.push_back(SubtypeOf{it->type_id, e2.type_id});
-    }
-  }
-  void operator()(type::Application const &, type::Application const &) { todo(); }
-  void operator()(type::Variable const &, type::Variable const &) {
-    constraints.push_back(SubtypeOf{a_id, b_id});
-  }
-  void operator()(type::NamedTypeReference const &a, type::NamedTypeReference const &b) {
-    if (a.definition_id != b.definition_id) {
+    } else if constexpr (std::same_as<B, type::NamedTypeReference>) {
+      constraints.push_back(SubtypeOf{a_id, forms[b.definition_id.value].type});
+    } else {
+      // static_assert(false);
       todo();
     }
   }
 
-  void operator()(type::Variant const &, type::NamedTypeReference const &b) {
-    constraints.push_back(SubtypeOf{a_id, forms[b.definition_id.value].type});
-  }
-
-  void operator()(type::Variable const &, type::NamedTypeReference const &) {
-    constraints.push_back(SubtypeOf{a_id, b_id});
-  }
-  void operator()(type::NamedTypeReference const &, type::Variable const &) {
-    constraints.push_back(SubtypeOf{a_id, b_id});
-  }
-
-  // Exhaustive branches.
-  void operator()(type::Arrow const &, auto &&) { todo(); }
-  void operator()(type::ForAll const &, auto &&) { todo(); }
-  void operator()(type::DeBruijnIndex const &, auto &&) { todo(); }
-  void operator()(type::Variant const &, auto &&) { todo(); }
-  void operator()(type::Struct const &, auto &&) { todo(); }
-  void operator()(type::Application const &, auto &&) { todo(); }
-  void operator()(type::Variable const &, auto &&) { todo(); }
-  void operator()(type::NamedTypeReference const &, auto &&) { todo(); }
-  void operator()(auto &&, auto &&) { todo(); }
+  // // Exhaustive branches.
+  // void operator()(type::Arrow const &, auto &) { todo(); }
+  // void operator()(type::ForAll const &, auto &) { todo(); }
+  // void operator()(type::DeBruijnIndex const &, auto &) { todo(); }
+  // void operator()(type::Variant const &, auto &) { todo(); }
+  // void operator()(type::Struct const &, auto &) { todo(); }
+  // void operator()(type::Application const &, auto &) { todo(); }
+  // void operator()(type::Variable const &, auto &) { todo(); }
+  // void operator()(type::NamedTypeReference const &, auto &) { todo(); }
 
   std::vector<entity::TypeFormDefinition> const &forms;
-  storage::TypeStorage const &ts;
+  storage::TypeStorage &ts;
   std::deque<SubtypeOf> &constraints;
   id::TypeId a_id;
   id::TypeId b_id;
@@ -145,6 +143,9 @@ export struct Solver {
 
           std::cout << c.to_string({ts, forms, tags}) << '\n';
 
+          // type::Variable v;
+          // type::NamedTypeReference n{};
+          // SubtypeOfRule{forms, ts, m_constraints, c.a_id, c.b_id}(v, n);
           std::visit(SubtypeOfRule{forms, ts, m_constraints, c.a_id, c.b_id}, ts.read(c.a_id),
                      ts.read(c.b_id));
         }
