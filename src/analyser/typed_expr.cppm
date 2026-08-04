@@ -73,8 +73,12 @@ struct BindingReference : Typed {
   std::reference_wrapper<entity::Binding const> binding;
 };
 
+struct Conversion : Typed {
+  std::unique_ptr<Expr> expr;
+};
+
 using ExprBase = std::variant<Application, Case, Variant, Pack, Lambda, TVLambda, ValueReference,
-                              BindingReference>;
+                              BindingReference, Conversion>;
 struct Expr : ExprBase {
   using ExprBase::ExprBase;
 

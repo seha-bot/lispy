@@ -87,15 +87,29 @@ std::expected<typed_expr::Expr, Error> get_type(Context &ctx, ast::expr::Expr ex
         todo();
       }
 
-      auto type_id = ctx.ts.make_variable();
+      auto from_type_id = ctx.ts.make_variable();
+      auto to_type_id = ctx.ts.make_variable();
+      // TODO: This really doesn't need redundancy checking in store.
+      auto invented_function_type_id = ctx.ts.store(type::Arrow{from_type_id, to_type_id});
       ctx.solver.add_constraint(constraint::SubtypeOf{
-          ctx.ts.store(type::Arrow{argument->type_id(), type_id}),
+          invented_function_type_id,
           function->type_id(),
       });
+      ctx.solver.add_constraint(constraint::SubtypeOf{
+          function->type_id(),
+          invented_function_type_id,
+      });
+      ctx.solver.add_constraint(constraint::SubtypeOf{
+          argument->type_id(),
+          from_type_id,
+      });
       return typed_expr::Application{
-          {type_id},
+          {to_type_id},
           std::make_unique<typed_expr::Expr>(*std::move(function)),
-          std::make_unique<typed_expr::Expr>(*std::move(argument)),
+          std::make_unique<typed_expr::Expr>(typed_expr::Conversion{
+              {from_type_id},
+              std::make_unique<typed_expr::Expr>(*std::move(argument)),
+          }),
       };
     }
     std::expected<typed_expr::Expr, Error> operator()(ast::expr::Case) {
@@ -279,7 +293,10 @@ std::expected<constraint::TypedValueEntity, Error> typecheck_entity(Context &ctx
       return entity::MergedValueDefinition<typed_expr::Expr>{
           .name = std::move(definition.name),
           .type_signature = definition.type_signature,
-          .value = std::make_unique<typed_expr::Expr>(*std::move(value)),
+          .value = std::make_unique<typed_expr::Expr>(typed_expr::Conversion{
+              {definition.type_signature},
+              std::make_unique<typed_expr::Expr>(*std::move(value)),
+          }),
       };
     }
 
