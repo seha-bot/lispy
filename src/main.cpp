@@ -40,6 +40,7 @@ int main(int argc, char *argv[]) {
     std::cerr << raw_ast.error() << '\n';
     return EXIT_FAILURE;
   }
+  std::cout << "1. RAW AST:\n";
   for (auto &expr : raw_ast.value()) {
     std::cout << expr << '\n';
   }
@@ -49,6 +50,12 @@ int main(int argc, char *argv[]) {
     std::cerr << ast.error() << '\n';
     return EXIT_FAILURE;
   }
+  std::cout << "2. STRUCTURED AST:\n";
+  for (auto &entity : ast->entities) {
+    entity.format(std::cout, {ast->entities, ast->forms, ast->tags}, 0);
+    std::cout << '\n';
+  }
+  std::cout << "STRUCTURED AST END\n";
 
   auto type_env = analyser::typecheck(*ast->ts, ast->tags, ast->forms, std::move(ast->entities));
   if (not type_env) {
