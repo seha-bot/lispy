@@ -34,6 +34,21 @@ export struct Error {
 
 namespace {
 
+using TypedValueEntityBase =
+    std::variant<entity::ValueDeclaration, entity::MergedValueDefinition<typed_expr::Expr>>;
+
+struct TypedValueEntity : TypedValueEntityBase {
+  using TypedValueEntityBase::TypedValueEntityBase;
+
+  id::TypeId type_id() const {
+    return std::visit([](auto &x) { return x.type_signature; }, *this);
+  }
+
+  std::string const &name() const {
+    return std::visit([](auto &e) -> std::string const & { return e.name; }, *this);
+  }
+};
+
 struct Env {
   void memoize(id::EntityId entity_id, id::TypeId type_id) {
     auto [_, did_insert] = type_of_entity.insert({entity_id, type_id});
@@ -228,14 +243,12 @@ struct ValueEntity : ValueEntityBase {
   using ValueEntityBase::ValueEntityBase;
 };
 
-std::expected<constraint::TypedValueEntity, Error> typecheck_entity(Context &ctx,
-                                                                    ValueEntity entity) noexcept {
+std::expected<TypedValueEntity, Error> typecheck_entity(Context &ctx, ValueEntity entity) noexcept {
   struct Visitor {
-    std::expected<constraint::TypedValueEntity, Error>
-    operator()(entity::ValueDeclaration val_decl) {
+    std::expected<TypedValueEntity, Error> operator()(entity::ValueDeclaration val_decl) {
       return val_decl;
     }
-    std::expected<constraint::TypedValueEntity, Error>
+    std::expected<TypedValueEntity, Error>
     operator()(entity::ValueDefinition<expr::Expr> definition) {
       auto value = get_type(ctx, std::move(*definition.value));
       if (not value) {
@@ -247,7 +260,7 @@ std::expected<constraint::TypedValueEntity, Error> typecheck_entity(Context &ctx
           .value = std::make_unique<typed_expr::Expr>(*std::move(value)),
       };
     }
-    std::expected<constraint::TypedValueEntity, Error>
+    std::expected<TypedValueEntity, Error>
     operator()(entity::MergedValueDefinition<expr::Expr> definition) {
       auto value = get_type(ctx, std::move(*definition.value));
       if (not value) {
@@ -272,22 +285,22 @@ std::expected<constraint::TypedValueEntity, Error> typecheck_entity(Context &ctx
 
 } // namespace
 
-export namespace analyser {
+namespace analyser {
 
-std::expected<void, Error>
+export std::expected<std::vector<TypedValueEntity>, Error>
 typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
           std::vector<entity::TypeFormDefinition> const &forms,
           std::vector<entity::ModuleEntity<expr::Expr>> entities) noexcept {
   constraint::Solver solver;
   Context ctx{ts, solver, forms, tags, {}};
-  std::vector<constraint::TypedValueEntity> typed_entities;
+  std::vector<TypedValueEntity> typed_entities;
   for (std::size_t i = 0; i < entities.size(); ++i) {
     auto &entity = entities[i];
     auto result_opt = std::visit(
-        [&](auto &entity) -> std::optional<std::expected<constraint::TypedValueEntity, Error>> {
+        [&](auto &entity) -> std::optional<std::expected<TypedValueEntity, Error>> {
           if constexpr (requires { typecheck_entity(ctx, std::move(entity)); }) {
             return typecheck_entity(ctx, std::move(entity))
-                .transform([&](constraint::TypedValueEntity typed_entity) {
+                .transform([&](TypedValueEntity typed_entity) {
                   ctx.env.memoize(id::EntityId{{.value = i}}, typed_entity.type_id());
                   return typed_entity;
                 });
@@ -312,9 +325,15 @@ typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
   }
 
   std::cout << "CONSTRAINTS:\n";
-  solver.solve(std::move(typed_entities), forms, ctx.tags, ctx.ts);
+  solver.solve(forms, ctx.tags, ctx.ts);
+  std::cout << "DONE.\n";
 
-  return {};
+  for (auto &entity : typed_entities) {
+    std::cout << entity.name() << " : "
+              << formatter::type_name({ctx.ts, forms, ctx.tags}, entity.type_id()) << '\n';
+  }
+
+  return typed_entities;
 }
 
 } // namespace analyser
