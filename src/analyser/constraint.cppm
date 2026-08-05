@@ -2,21 +2,18 @@ module;
 
 #include <algorithm>
 #include <deque>
-#include <iostream>
+#include <functional>
+#include <ostream>
 #include <variant>
 #include <vector>
 
 export module constraint;
 
 import entity;
-import expr;
-import formatter;
 import id;
-import tag;
 import todo;
 import type;
 import type_storage;
-import typed_expr;
 
 namespace constraint {
 
@@ -33,8 +30,10 @@ export struct SubtypeOf {
 
   SubtypeOf flip() const { return {b_id, a_id}; }
 
-  std::string to_string(formatter::TypeContext ctx) const {
-    return formatter::type_name(ctx, a_id) + " <= " + formatter::type_name(ctx, b_id);
+  void log(std::ostream &os, auto log) const {
+    log(os, a_id);
+    os << " <= ";
+    log(os, b_id);
   }
 };
 
@@ -85,16 +84,6 @@ struct SubtypeOfRule {
     }
   }
 
-  // // Exhaustive branches.
-  // void operator()(type::Arrow const &, auto &) { todo(); }
-  // void operator()(type::ForAll const &, auto &) { todo(); }
-  // void operator()(type::DeBruijnIndex const &, auto &) { todo(); }
-  // void operator()(type::Variant const &, auto &) { todo(); }
-  // void operator()(type::Struct const &, auto &) { todo(); }
-  // void operator()(type::Application const &, auto &) { todo(); }
-  // void operator()(type::Variable const &, auto &) { todo(); }
-  // void operator()(type::NamedTypeReference const &, auto &) { todo(); }
-
   std::vector<entity::TypeFormDefinition> const &forms;
   storage::TypeStorage &ts;
   std::deque<SubtypeOf> &constraints;
@@ -107,20 +96,23 @@ struct SubtypeOfRule {
 export struct Solver {
   void add_constraint(SubtypeOf c) { m_constraints.push_back(c); }
 
-  void solve(std::vector<entity::TypeFormDefinition> forms, std::vector<tag::Tag> const &tags,
-             storage::TypeStorage &ts) {
+  void solve(std::ostream &os, std::function<void(std::ostream &os, id::TypeId)> log,
+             std::vector<entity::TypeFormDefinition> const &forms, storage::TypeStorage &ts) {
     while (not m_constraints.empty()) {
       for (std::size_t i = 0; i < m_constraints.size(); ++i) {
         for (std::size_t j = i + 1; j < m_constraints.size(); ++j) {
           if (m_constraints[i].equal(ts, m_constraints[j])) {
-            std::cout << "Erasing (duplicate): " << m_constraints[i].to_string({ts, forms, tags})
-                      << '\n';
+            os << "Erasing (duplicate): ";
+            m_constraints[i].log(os, log);
+            os << '\n';
             m_constraints.erase(m_constraints.begin() + static_cast<std::ptrdiff_t>(j));
             --j;
           } else if (m_constraints[i].equal(ts, m_constraints[j].flip())) {
-            formatter::TypeContext ctx{ts, forms, tags};
-            std::cout << "Constraints produced equal types: " << m_constraints[i].to_string(ctx)
-                      << " and " << m_constraints[j].to_string(ctx) << '\n';
+            os << "Constraints produced equal types: ";
+            m_constraints[i].log(os, log);
+            os << " and ";
+            m_constraints[j].log(os, log);
+            os << '\n';
             if (not ts.merge(m_constraints[i].a_id, m_constraints[i].b_id)) {
               todo();
             }
@@ -141,18 +133,16 @@ export struct Solver {
           auto c = constraints.front();
           constraints.pop_front();
 
-          std::cout << c.to_string({ts, forms, tags}) << '\n';
+          c.log(os, log);
+          os << '\n';
 
-          // type::Variable v;
-          // type::NamedTypeReference n{};
-          // SubtypeOfRule{forms, ts, m_constraints, c.a_id, c.b_id}(v, n);
           std::visit(SubtypeOfRule{forms, ts, m_constraints, c.a_id, c.b_id}, ts.read(c.a_id),
                      ts.read(c.b_id));
         }
 
         if (not std::ranges::equal(m_constraints, old_constraints,
                                    [&](auto &a, auto &b) { return a.equal(ts, b); })) {
-          std::cout << "Again...\n";
+          os << "Again...\n";
           continue;
         }
       }
@@ -160,11 +150,13 @@ export struct Solver {
       for (std::size_t i = 0; i < m_constraints.size(); ++i) {
         auto *var = std::get_if<type::Variable>(&ts.read(m_constraints[i].a_id));
         if (var) {
+          os << "Merging ";
+          log(os, m_constraints[i].a_id);
+          os << " and ";
+          log(os, m_constraints[i].b_id);
+          os << '\n';
           // TODO: You could make merge know that a_id is a variable, so that the merge has a 100%
           // success rate.
-          std::cout << "Merging " << formatter::type_name({ts, forms, tags}, m_constraints[i].a_id)
-                    << " and " << formatter::type_name({ts, forms, tags}, m_constraints[i].b_id)
-                    << '\n';
           if (not ts.merge(m_constraints[i].a_id, m_constraints[i].b_id)) {
             todo();
           }

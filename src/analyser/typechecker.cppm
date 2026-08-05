@@ -61,11 +61,7 @@ struct Env {
 struct Context {
   storage::TypeStorage &ts;
   constraint::Solver &solver;
-  std::vector<entity::TypeFormDefinition> const &forms;
-  std::vector<tag::Tag> const &tags;
   Env env;
-
-  tag::Tag const &tag(id::TagId e) const { return tags[e.value]; }
 };
 
 std::expected<typed_expr::Expr, Error> get_type(Context &ctx, expr::Expr expr) noexcept {
@@ -292,7 +288,7 @@ typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
           std::vector<entity::TypeFormDefinition> const &forms,
           std::vector<entity::ModuleEntity<expr::Expr>> entities) noexcept {
   constraint::Solver solver;
-  Context ctx{ts, solver, forms, tags, {}};
+  Context ctx{ts, solver, {}};
   std::vector<TypedValueEntity> typed_entities;
   for (std::size_t i = 0; i < entities.size(); ++i) {
     auto &entity = entities[i];
@@ -320,17 +316,20 @@ typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
   }
 
   for (auto &entity : typed_entities) {
-    std::cout << entity.name() << " : "
-              << formatter::type_name({ctx.ts, forms, ctx.tags}, entity.type_id()) << '\n';
+    std::cout << entity.name() << " : " << formatter::type_name({ts, forms, tags}, entity.type_id())
+              << '\n';
   }
 
   std::cout << "CONSTRAINTS:\n";
-  solver.solve(forms, ctx.tags, ctx.ts);
+  solver.solve(
+      std::cout,
+      [&](std::ostream &os, id::TypeId id) { os << formatter::type_name({ts, forms, tags}, id); },
+      forms, ts);
   std::cout << "DONE.\n";
 
   for (auto &entity : typed_entities) {
-    std::cout << entity.name() << " : "
-              << formatter::type_name({ctx.ts, forms, ctx.tags}, entity.type_id()) << '\n';
+    std::cout << entity.name() << " : " << formatter::type_name({ts, forms, tags}, entity.type_id())
+              << '\n';
   }
 
   return typed_entities;
