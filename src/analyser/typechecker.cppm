@@ -55,7 +55,8 @@ struct Env {
     assert(did_insert);
   }
 
-  std::unordered_map<id::EntityId, id::TypeId> type_of_entity;
+  std::unordered_map<id::EntityId, id::TypeId, std::hash<id::Id<id::Domain::entity>>>
+      type_of_entity;
 };
 
 struct Context {

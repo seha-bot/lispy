@@ -41,10 +41,8 @@ namespace {
 
 struct SubtypeOfRule {
   template <typename A, typename B> void operator()(A const &a, B const &b) {
-    if constexpr (std::same_as<A, type::Variable> or std::same_as<B, type::Variable>) {
-      constraints.push_back(SubtypeOf{a_id, b_id});
-    } else if constexpr (std::same_as<A, type::Arrow> and std::same_as<B, type::Arrow>) {
-      constraints.push_back(SubtypeOf{a.from_id, b.from_id});
+    if constexpr (std::same_as<A, type::Arrow> and std::same_as<B, type::Arrow>) {
+      constraints.push_back(SubtypeOf{b.from_id, a.from_id});
       constraints.push_back(SubtypeOf{a.to_id, b.to_id});
     } else if constexpr (std::same_as<A, type::ForAll> and std::same_as<B, type::ForAll>) {
       constraints.push_back(SubtypeOf{a.type_id, b.type_id});
@@ -107,27 +105,14 @@ export struct Solver {
             os << '\n';
             m_constraints.erase(m_constraints.begin() + static_cast<std::ptrdiff_t>(j));
             --j;
-          } else if (m_constraints[i].equal(ts, m_constraints[j].flip())) {
-            os << "Constraints produced equal types: ";
-            m_constraints[i].log(os, log);
-            os << " and ";
-            m_constraints[j].log(os, log);
-            os << '\n';
-            if (not ts.merge(m_constraints[i].a_id, m_constraints[i].b_id)) {
-              todo();
-            }
-            m_constraints.erase(m_constraints.begin() + static_cast<std::ptrdiff_t>(j));
-            m_constraints.erase(m_constraints.begin() + static_cast<std::ptrdiff_t>(i));
-            --i;
-            break;
           }
         }
       }
 
       {
-        auto const old_constraints = m_constraints;
         auto constraints = std::move(m_constraints);
         m_constraints.clear();
+        bool did_something = false;
 
         while (not constraints.empty()) {
           auto c = constraints.front();
@@ -136,31 +121,93 @@ export struct Solver {
           c.log(os, log);
           os << '\n';
 
-          std::visit(SubtypeOfRule{forms, ts, m_constraints, c.a_id, c.b_id}, ts.read(c.a_id),
-                     ts.read(c.b_id));
+          auto &a = ts.read(c.a_id);
+          auto &b = ts.read(c.b_id);
+          if (std::holds_alternative<type::Variable>(a) or
+              std::holds_alternative<type::Variable>(b)) {
+            m_constraints.push_back(c);
+          } else {
+            std::visit(SubtypeOfRule{forms, ts, m_constraints, c.a_id, c.b_id}, a, b);
+            did_something = true;
+          }
         }
 
-        if (not std::ranges::equal(m_constraints, old_constraints,
-                                   [&](auto &a, auto &b) { return a.equal(ts, b); })) {
+        if (did_something) {
           os << "Again...\n";
           continue;
         }
       }
 
-      for (std::size_t i = 0; i < m_constraints.size(); ++i) {
-        auto *var = std::get_if<type::Variable>(&ts.read(m_constraints[i].a_id));
-        if (var) {
-          os << "Merging ";
-          log(os, m_constraints[i].a_id);
-          os << " and ";
-          log(os, m_constraints[i].b_id);
-          os << '\n';
-          // TODO: You could make merge know that a_id is a variable, so that the merge has a 100%
-          // success rate.
-          if (not ts.merge(m_constraints[i].a_id, m_constraints[i].b_id)) {
-            todo();
+      // At this point, every constraint contains at least 1 variable.
+      struct Bounds {
+        std::vector<id::TypeId> lower, upper;
+        id::TypeId middle;
+      };
+      std::unordered_map<type::Variable const *, Bounds> var_bounds;
+
+      for (auto [a_id, b_id] : m_constraints) {
+        if (auto *a = std::get_if<type::Variable>(&ts.read(a_id))) {
+          var_bounds[a].upper.push_back(b_id);
+          var_bounds[a].middle = a_id;
+        }
+        if (auto *b = std::get_if<type::Variable>(&ts.read(b_id))) {
+          var_bounds[b].lower.push_back(a_id);
+          var_bounds[b].middle = b_id;
+        }
+      }
+
+      os << "Calculated bounds:\n";
+      for (auto &[_, bounds] : var_bounds) {
+        for (std::size_t i = 0; i < bounds.lower.size(); ++i) {
+          if (i != 0) {
+            os << ", ";
           }
-        } else {
+          log(os, bounds.lower[i]);
+        }
+        os << " <= ";
+        log(os, bounds.middle);
+        os << " <= ";
+        for (std::size_t i = 0; i < bounds.upper.size(); ++i) {
+          if (i != 0) {
+            os << ", ";
+          }
+          log(os, bounds.upper[i]);
+        }
+        os << '\n';
+      }
+
+      struct MergeRequest {
+        id::TypeId a_id, b_id;
+      };
+      std::vector<MergeRequest> merge_requests;
+      for (auto &[_, bounds] : var_bounds) {
+        for (std::size_t i = 0; i < bounds.lower.size(); ++i) {
+          for (std::size_t j = 0; j < bounds.upper.size(); ++j) {
+            if (ts.equal(bounds.lower[i], bounds.upper[j])) {
+              merge_requests.push_back({bounds.middle, bounds.lower[i]});
+            }
+          }
+        }
+      }
+
+      os << "Merge requests:\n";
+      for (auto [a_id, b_id] : merge_requests) {
+        log(os, a_id);
+        os << " into ";
+        log(os, b_id);
+        os << '\n';
+      }
+
+      for (auto [a_id, b_id] : merge_requests) {
+        if (std::holds_alternative<type::Variable>(ts.read(a_id))) {
+          os << "Merging ";
+          log(os, a_id);
+          os << " into ";
+          log(os, b_id);
+          os << '\n';
+          ts.merge_into(id::VariableId{a_id}, b_id);
+        } else if (not ts.equal(a_id, b_id)) {
+          // Should be unreachable. Try proving that.
           todo();
         }
       }

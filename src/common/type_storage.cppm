@@ -23,13 +23,6 @@ struct RepresentativeSets {
   };
   using Map = std::unordered_map<id::TypeId, id::TypeId, Hasher, Eq>;
 
-  // Merges `a` into `b`.
-  void directional_merge_unchecked(Map::iterator a, id::TypeId b) { a->second = b; }
-
-  void directional_merge(id::TypeId a, id::TypeId b) {
-    representative_iterator(a)->second = representative(b);
-  }
-
   bool equal(id::TypeId a, id::TypeId b) { return Eq{}(representative(a), representative(b)); }
 
   Map::iterator representative_iterator(id::TypeId a) {
@@ -52,6 +45,11 @@ struct RepresentativeSets {
   }
 
   id::TypeId representative(id::TypeId a) { return representative_iterator(a)->first; }
+
+  // Merges `a` into `b`.
+  void merge_into(id::TypeId a, id::TypeId b) {
+    representative_iterator(a)->second = representative(b);
+  }
 
   Map m_root;
 };
@@ -90,41 +88,13 @@ struct TypeStorage {
   }
 
   bool equal(id::TypeId a_id, id::TypeId b_id) const { return m_rep.equal(a_id, b_id); }
+  void merge_into(id::VariableId a_id, id::TypeId b_id) { m_rep.merge_into(a_id, b_id); }
 
-  /// If this returns false, then the entire TypeStorage is in an invalid state.
-  [[nodiscard]] bool merge(id::TypeId a_id, id::TypeId b_id) {
-    auto a_rep_it = m_rep.representative_iterator(a_id);
-    auto b_rep_it = m_rep.representative_iterator(b_id);
-    auto &a = m_types[a_rep_it->first.value];
-    auto &b = m_types[b_rep_it->first.value];
-    auto *a_arr = std::get_if<type::Arrow>(&a);
-    auto *b_arr = std::get_if<type::Arrow>(&b);
-
-    if (RepresentativeSets::Eq{}(a_rep_it->first, b_rep_it->first)) {
-      return true;
-    } else if (is_variable(a)) {
-      m_rep.directional_merge_unchecked(a_rep_it, b_rep_it->first);
-      return true;
-    } else if (is_variable(b)) {
-      m_rep.directional_merge_unchecked(b_rep_it, a_rep_it->first);
-      return true;
-    } else if (a_arr and b_arr) {
-      // TODO: can you create a strong exception guarantee here?
-      return merge(a_arr->from_id, b_arr->from_id) and merge(a_arr->to_id, b_arr->to_id);
-    } else {
-      return false;
-    }
-  }
-
-  id::TypeId instantiate(id::TypeId type_id) {
+  [[nodiscard]] id::TypeId instantiate(id::TypeId type_id) {
     return instantiate_impl(type_id, make_variable(), 0);
   }
 
 private:
-  static bool is_variable(type::Type const &type) {
-    return std::holds_alternative<type::Variable>(type);
-  }
-
   id::TypeId instantiate_impl(id::TypeId type_id, id::TypeId variable_id, std::size_t depth) {
     struct Visitor {
       id::TypeId operator()(type::Arrow const &arr) {
