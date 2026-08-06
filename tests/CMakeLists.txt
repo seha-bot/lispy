@@ -1,8 +1,13 @@
 find_package(Catch2 3 REQUIRED)
 
-add_executable(typechecker_test analyser/typechecker_test.cpp)
-target_link_libraries(typechecker_test PRIVATE
-  lispy_lib
-  Catch2::Catch2WithMain
-)
-add_test(NAME typechecker_test COMMAND typechecker_test)
+function(register_test name path)
+  add_executable(${name} ${path})
+  target_link_libraries(${name} PRIVATE
+    lispy_lib
+    Catch2::Catch2WithMain
+  )
+  add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+register_test(typechecker_test analyser/typechecker_test.cpp)
+register_test(type_storage_test common/type_storage_test.cpp)
