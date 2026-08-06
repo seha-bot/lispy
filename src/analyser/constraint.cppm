@@ -181,11 +181,22 @@ export struct Solver {
       };
       std::vector<MergeRequest> merge_requests;
       for (auto &[_, bounds] : var_bounds) {
+        bool did_constrain = false;
         for (std::size_t i = 0; i < bounds.lower.size(); ++i) {
           for (std::size_t j = 0; j < bounds.upper.size(); ++j) {
             if (ts.equal(bounds.lower[i], bounds.upper[j])) {
               merge_requests.push_back({bounds.middle, bounds.lower[i]});
+              did_constrain = true;
             }
+          }
+        }
+        if (not did_constrain) {
+          if (bounds.lower.size() == 1) {
+            merge_requests.push_back({bounds.middle, bounds.lower[0]});
+          } else if (bounds.upper.size() == 1) {
+            merge_requests.push_back({bounds.middle, bounds.upper[0]});
+          } else {
+            todo();
           }
         }
       }
