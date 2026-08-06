@@ -62,7 +62,7 @@ struct Env {
 struct Context {
   storage::TypeStorage &ts;
   constraint::Solver &solver;
-  Env env;
+  Env &env;
 };
 
 std::expected<typed_expr::Expr, Error> get_type(Context &ctx, expr::Expr expr) noexcept {
@@ -288,17 +288,20 @@ export std::expected<std::vector<TypedValueEntity>, Error>
 typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
           std::vector<entity::TypeFormDefinition> const &forms,
           std::vector<entity::ModuleEntity<expr::Expr>> entities) noexcept {
-  constraint::Solver solver;
-  Context ctx{ts, solver, {}};
+  Env env;
   std::vector<TypedValueEntity> typed_entities;
   for (std::size_t i = 0; i < entities.size(); ++i) {
     auto &entity = entities[i];
-    auto result_opt = std::visit(
+
+    constraint::Solver solver;
+
+    auto typed_entity_opt = std::visit(
         [&](auto &entity) -> std::optional<std::expected<TypedValueEntity, Error>> {
+          Context ctx{ts, solver, env};
           if constexpr (requires { typecheck_entity(ctx, std::move(entity)); }) {
             return typecheck_entity(ctx, std::move(entity))
                 .transform([&](TypedValueEntity typed_entity) {
-                  ctx.env.memoize(id::EntityId{{.value = i}}, typed_entity.type_id());
+                  env.memoize(id::EntityId{{.value = i}}, typed_entity.type_id());
                   return typed_entity;
                 });
           } else {
@@ -306,31 +309,26 @@ typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
           }
         },
         entity);
-    if (not result_opt) {
+    if (not typed_entity_opt) {
       continue;
     }
-    auto result = *std::move(result_opt);
-    if (not result) {
-      return std::unexpected(result.error());
+    auto typed_entity = *std::move(typed_entity_opt);
+    if (not typed_entity) {
+      return std::unexpected(typed_entity.error());
     }
-    typed_entities.push_back(*std::move(result));
-  }
 
-  for (auto &entity : typed_entities) {
-    std::cout << entity.name() << " : " << formatter::type_name({ts, forms, tags}, entity.type_id())
-              << '\n';
-  }
+    std::cout << typed_entity->name() << " : "
+              << formatter::type_name({ts, forms, tags}, typed_entity->type_id()) << '\n';
+    std::cout << "CONSTRAINTS:\n";
+    solver.solve(
+        std::cout,
+        [&](std::ostream &os, id::TypeId id) { os << formatter::type_name({ts, forms, tags}, id); },
+        forms, ts);
+    std::cout << "DONE.\n";
+    std::cout << typed_entity->name() << " : "
+              << formatter::type_name({ts, forms, tags}, typed_entity->type_id()) << '\n';
 
-  std::cout << "CONSTRAINTS:\n";
-  solver.solve(
-      std::cout,
-      [&](std::ostream &os, id::TypeId id) { os << formatter::type_name({ts, forms, tags}, id); },
-      forms, ts);
-  std::cout << "DONE.\n";
-
-  for (auto &entity : typed_entities) {
-    std::cout << entity.name() << " : " << formatter::type_name({ts, forms, tags}, entity.type_id())
-              << '\n';
+    typed_entities.push_back(*std::move(typed_entity));
   }
 
   return typed_entities;
