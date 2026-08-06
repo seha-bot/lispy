@@ -15,6 +15,7 @@ import type;
 export namespace storage {
 
 struct RepresentativeSets {
+private:
   struct Hasher {
     static std::size_t operator()(id::TypeId t) noexcept { return t.value; }
   };
@@ -23,8 +24,15 @@ struct RepresentativeSets {
   };
   using Map = std::unordered_map<id::TypeId, id::TypeId, Hasher, Eq>;
 
-  bool equal(id::TypeId a, id::TypeId b) { return Eq{}(representative(a), representative(b)); }
+public:
+  id::TypeId representative(id::TypeId a) { return representative_iterator(a)->first; }
 
+  // Merges `a` into `b`.
+  void merge_into(id::TypeId a, id::TypeId b) {
+    representative_iterator(a)->second = representative(b);
+  }
+
+private:
   Map::iterator representative_iterator(id::TypeId a) {
     std::unordered_set<id::TypeId, Hasher, Eq> seen;
     while (true) {
@@ -44,16 +52,13 @@ struct RepresentativeSets {
     }
   }
 
-  id::TypeId representative(id::TypeId a) { return representative_iterator(a)->first; }
-
-  // Merges `a` into `b`.
-  void merge_into(id::TypeId a, id::TypeId b) {
-    representative_iterator(a)->second = representative(b);
-  }
-
   Map m_root;
 };
 
+/// Its only purpose is to store your types.
+/// NOTE: Uniqueness of stored types is not guaranteed.
+/// assert(ts.equal(a, b));
+/// assert(&ts.read(a) == &ts.read(b)); // Might not pass.
 struct TypeStorage {
   TypeStorage() = default;
   TypeStorage(TypeStorage const &) = delete;
@@ -62,13 +67,16 @@ struct TypeStorage {
   TypeStorage &operator=(TypeStorage &&) = delete;
   ~TypeStorage() = default;
 
-  id::TypeId make_variable() {
+  // TODO: In order to reduce the amount of types stored, you could keep a vector
+  // which records which ids are variables so you may recycle them while typechecking the next
+  // definition.
+  [[nodiscard]] id::VariableId make_variable() {
     id::TypeId id{m_types.size()};
     m_types.push_back(type::Variable{});
-    return id;
+    return id::VariableId{id};
   }
 
-  id::TypeId store(type::Type type) {
+  [[nodiscard]] id::TypeId store(type::Type type) {
     for (std::size_t i = 0; i < m_types.size(); ++i) {
       if (type_equal(m_types[i], type)) {
         return id::TypeId{i};
@@ -79,16 +87,19 @@ struct TypeStorage {
     return id;
   }
 
-  type::Type const &read(id::TypeId id) const {
-    auto const rep_id = m_rep.representative(id);
-    if (rep_id.value == id::TypeId::unit_id.value) {
-      static type::Type const unit{type::Struct{}};
-      return unit;
-    }
-    return m_types.at(rep_id.value);
+  [[nodiscard]] type::Type const &read(id::TypeId id) const {
+    return read_exact(m_rep.representative(id));
   }
 
-  bool equal(id::TypeId a_id, id::TypeId b_id) const { return m_rep.equal(a_id, b_id); }
+  [[nodiscard]] bool equal(id::TypeId a_id, id::TypeId b_id) const {
+    auto const a_rep_id = m_rep.representative(a_id);
+    auto const b_rep_id = m_rep.representative(b_id);
+    if (a_rep_id.value == b_rep_id.value) {
+      return true;
+    }
+    return type_equal(read_exact(a_rep_id), read_exact(b_rep_id));
+  }
+
   void merge_into(id::VariableId a_id, id::TypeId b_id) { m_rep.merge_into(a_id, b_id); }
 
   [[nodiscard]] id::TypeId instantiate(id::TypeId type_id) {
@@ -96,7 +107,7 @@ struct TypeStorage {
   }
 
 private:
-  id::TypeId instantiate_impl(id::TypeId type_id, id::TypeId variable_id, std::size_t depth) {
+  id::TypeId instantiate_impl(id::TypeId type_id, id::VariableId variable_id, std::size_t depth) {
     struct Visitor {
       id::TypeId operator()(type::Arrow const &arr) {
         return ts.store(type::Arrow{
@@ -123,7 +134,7 @@ private:
 
       TypeStorage &ts;
       id::TypeId type_id;
-      id::TypeId variable_id;
+      id::VariableId variable_id;
       std::size_t depth;
     };
     return std::visit(Visitor{*this, type_id, variable_id, depth}, read(type_id));
@@ -131,10 +142,10 @@ private:
 
   struct EqualVisitor {
     bool operator()(type::Arrow const &a, type::Arrow const &b) {
-      return rep.equal(a.from_id, b.from_id) and rep.equal(a.to_id, b.to_id);
+      return ts.equal(a.from_id, b.from_id) and ts.equal(a.to_id, b.to_id);
     }
     bool operator()(type::ForAll const &a, type::ForAll const &b) {
-      return rep.equal(a.type_id, b.type_id);
+      return ts.equal(a.type_id, b.type_id);
     }
     bool operator()(type::DeBruijnIndex const &a, type::DeBruijnIndex const &b) {
       return a.value == b.value;
@@ -142,17 +153,17 @@ private:
     bool operator()(type::Variant const &a, type::Variant const &b) {
       return std::ranges::equal(
           a.elements, b.elements, [&](type::Element const &e1, type::Element const &e2) {
-            return e1.tag_id == e2.tag_id and rep.equal(e1.type_id, e2.type_id);
+            return e1.tag_id == e2.tag_id and ts.equal(e1.type_id, e2.type_id);
           });
     }
     bool operator()(type::Struct const &a, type::Struct const &b) {
       return std::ranges::equal(
           a.elements, b.elements, [&](type::Element const &e1, type::Element const &e2) {
-            return e1.tag_id == e2.tag_id and rep.equal(e1.type_id, e2.type_id);
+            return e1.tag_id == e2.tag_id and ts.equal(e1.type_id, e2.type_id);
           });
     }
     bool operator()(type::Application const &a, type::Application const &b) {
-      return rep.equal(a.function_id, b.function_id) and rep.equal(a.argument_id, b.argument_id);
+      return ts.equal(a.function_id, b.function_id) and ts.equal(a.argument_id, b.argument_id);
     }
     bool operator()(type::NamedTypeReference const &a, type::NamedTypeReference const &b) {
       return a.definition_id == b.definition_id;
@@ -168,11 +179,19 @@ private:
     bool operator()(type::Variable const &, auto &) { return false; }
     bool operator()(type::NamedTypeReference const &, auto &) { return false; }
 
-    RepresentativeSets &rep;
+    TypeStorage const &ts;
   };
 
   bool type_equal(type::Type const &a, type::Type const &b) const {
-    return std::visit(EqualVisitor{m_rep}, a, b);
+    return std::visit(EqualVisitor{*this}, a, b);
+  }
+
+  type::Type const &read_exact(id::TypeId id) const {
+    if (id.value == id::TypeId::unit_id.value) {
+      static type::Type const unit{type::Struct{}};
+      return unit;
+    }
+    return m_types.at(id.value);
   }
 
   // FIX: MAKE PRIVATE!
