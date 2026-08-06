@@ -80,11 +80,12 @@ struct TypeStorage {
   }
 
   type::Type const &read(id::TypeId id) const {
-    if (id.value == id::TypeId::unit_id.value) {
+    auto const rep_id = m_rep.representative(id);
+    if (rep_id.value == id::TypeId::unit_id.value) {
       static type::Type const unit{type::Struct{}};
       return unit;
     }
-    return m_types.at(m_rep.representative(id).value);
+    return m_types.at(rep_id.value);
   }
 
   bool equal(id::TypeId a_id, id::TypeId b_id) const { return m_rep.equal(a_id, b_id); }
