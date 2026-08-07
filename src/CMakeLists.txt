@@ -17,12 +17,13 @@ target_sources(lispy_lib
       common/type_storage.cppm
       parser/context.cppm
       parser/entity_storage.cppm
-      parser/lowerer.cppm
       parser/parser.cppm
       parser/parsy.cppm
       parser/raw_ast.cppm
+      parser/raw_ast_parser.cppm
       parser/scope.cppm
       parser/shallow_ast.cppm
+      parser/source_parser.cppm
       parser/tag_storage.cppm
 )
 target_link_libraries(lispy_lib PUBLIC compiler_flags)

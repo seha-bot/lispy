@@ -10,7 +10,7 @@ export module tag_storage;
 import id;
 import tag;
 
-export namespace parser {
+export namespace tag_storage {
 
 struct TagStorage {
   id::TagId get_tag(std::string name) {
@@ -37,4 +37,4 @@ private:
   std::unordered_map<tag::Tag, id::TagId> m_tags;
 };
 
-} // namespace parser
+} // namespace tag_storage

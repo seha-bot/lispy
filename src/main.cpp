@@ -6,7 +6,6 @@
 #include <utility>
 
 import formatter;
-import lowerer;
 import parser;
 import typechecker;
 
@@ -30,34 +29,19 @@ int main(int argc, char *argv[]) {
     source = std::move(buffer).str();
   }
 
-  // std::ofstream output(filename + ".out");
-  // if (not output) {
-  //   std::cerr << "Can't open file \"" << filename << ".out" << "\" for writing.";
-  //   return EXIT_FAILURE;
-  // }
-
-  auto raw_ast = parser::parse_source(source);
-  if (not raw_ast) {
-    std::cerr << raw_ast.error() << '\n';
-    return EXIT_FAILURE;
-  }
-  std::cout << "1. RAW AST:\n";
-  for (auto &expr : raw_ast.value()) {
-    std::cout << expr << '\n';
-  }
-
-  auto ast = parser::lower_ast(filename, *std::move(raw_ast));
+  auto ast = parser::parse(source);
   if (not ast) {
     std::cerr << ast.error() << '\n';
     return EXIT_FAILURE;
   }
-  std::cout << "2. STRUCTURED AST:\n";
+
+  std::cout << "STRUCTURED AST START.\n";
   for (auto &entity : ast->entities) {
     formatter::format_entity(std::cout, {*ast->ts, ast->entities, ast->forms, ast->tags}, 0,
                              entity);
     std::cout << '\n';
   }
-  std::cout << "STRUCTURED AST END\n";
+  std::cout << "STRUCTURED AST END.\n";
 
   auto type_env = analyser::typecheck(*ast->ts, ast->tags, ast->forms, std::move(ast->entities));
   if (not type_env) {

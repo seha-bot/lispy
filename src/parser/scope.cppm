@@ -14,7 +14,7 @@ export module scope;
 import entity;
 import id;
 
-export namespace parser::scope {
+export namespace scope {
 
 struct TypeBinding {
   std::size_t absolute_index;
@@ -89,4 +89,4 @@ private:
   std::unordered_set<entity::Binding const *> m_captures;
 };
 
-} // namespace parser::scope
+} // namespace scope

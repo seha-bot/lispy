@@ -11,7 +11,7 @@ import expr;
 import id;
 import todo;
 
-export namespace parser {
+export namespace entity_storage {
 
 struct EntityStorage {
   id::EntityId reserve() {
@@ -61,4 +61,4 @@ private:
   std::vector<std::optional<entity::TypeFormDefinition>> m_forms;
 };
 
-} // namespace parser
+} // namespace entity_storage

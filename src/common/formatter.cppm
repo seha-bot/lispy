@@ -1,5 +1,6 @@
 module;
 
+#include <cstddef>
 #include <ostream>
 #include <string>
 #include <variant>
@@ -91,7 +92,19 @@ void format_expr(std::ostream &os, Context ctx, std::size_t depth, expr::Expr co
         os << ctx.tags[v.tag_id.value].name;
       }
     }
-    void operator()(expr::Pack const &) { todo(); }
+    void operator()(expr::Pack const &p) {
+      os << "(pack ";
+      for (std::size_t i = 0; i < p.tagged_values.size(); ++i) {
+        if (i != 0) {
+          os << ' ';
+        }
+        auto &val = p.tagged_values[i];
+        os << '(' << ctx.tags[val.tag_id.value].name << ' ';
+        format_expr(os, ctx, 0, *val.value);
+        os << ')';
+      }
+      os << ')';
+    }
     void operator()(expr::Lambda const &l) {
       os << "(lambda (" << l.binding->name << ' '
          << type_name({ctx.ts, ctx.forms, ctx.tags}, l.binding->type_id) << ") ";

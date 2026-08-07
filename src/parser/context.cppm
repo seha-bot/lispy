@@ -12,10 +12,11 @@ import scope;
 import tag_storage;
 import type_storage;
 
-export namespace parser {
+export namespace context {
 
 struct Context {
-  Context(storage::TypeStorage &ts_, EntityStorage &es_, TagStorage &tags_)
+  Context(storage::TypeStorage &ts_, entity_storage::EntityStorage &es_,
+          tag_storage::TagStorage &tags_)
       : Context(ts_, es_, tags_, std::make_shared<scope::Scope>(), 0) {}
 
   // TODO: The keys could be std::string_view.
@@ -32,12 +33,13 @@ struct Context {
   std::size_t push_type_binding() { return m_type_binding_count++; }
 
   storage::TypeStorage &ts;
-  EntityStorage &es;
-  TagStorage &tags;
+  entity_storage::EntityStorage &es;
+  tag_storage::TagStorage &tags;
 
 private:
-  Context(storage::TypeStorage &ts_, EntityStorage &es_, TagStorage &tags_,
-          std::shared_ptr<scope::Scope> scope, std::size_t type_binding_count)
+  Context(storage::TypeStorage &ts_, entity_storage::EntityStorage &es_,
+          tag_storage::TagStorage &tags_, std::shared_ptr<scope::Scope> scope,
+          std::size_t type_binding_count)
       : ts(ts_), es(es_), tags(tags_), m_scope(std::move(scope)),
         m_type_binding_count(type_binding_count) {}
 
@@ -46,4 +48,4 @@ private:
   std::size_t m_type_binding_count;
 };
 
-} // namespace parser
+} // namespace context
