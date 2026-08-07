@@ -1,35 +1,18 @@
-#include <algorithm>
-#include <cassert>
-#include <cstddef>
-#include <expected>
-#include <functional>
-#include <iostream>
-#include <memory>
-#include <optional>
-#include <ostream>
-#include <unordered_map>
-#include <utility>
-#include <variant>
-#include <vector>
 #include <catch2/catch_test_macros.hpp>
+#include <string_view>
+#include <utility>
 
-import constraint;
-import entity;
-import expr;
-import formatter;
-import id;
-import resolved;
-import tag;
-import type;
-import type_storage;
-import typed_expr;
+import parser;
+import typechecker;
 
-// std::expected<std::vector<TypedValueEntity>, Error>
-// typecheck(storage::TypeStorage &ts, std::vector<tag::Tag> const &tags,
-//           std::vector<entity::TypeFormDefinition> const &forms,
-//           std::vector<entity::ModuleEntity<expr::Expr>> entities) noexcept;
+auto parse(std::string_view expr) {
+  auto ast = parser::parse(expr);
+  REQUIRE(ast.has_value());
+  return *std::move(ast);
+}
 
-TEST_CASE("Inference", "[typechecker]") {
-  REQUIRE(0 == 1 - 1);
-  //
+TEST_CASE("Error on unconstrained types.", "[typechecker]") {
+  auto ast = parse("(def id (lambda x x))");
+  auto result = analyser::typecheck(*ast.ts, ast.tags, ast.forms, std::move(ast.entities));
+  REQUIRE_FALSE(result.has_value());
 }
