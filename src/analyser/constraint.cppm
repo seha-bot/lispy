@@ -190,6 +190,12 @@ export struct Solver {
             }
           }
         }
+        // FIX: BUGGY. WHAT IF YOU HAVE #1 <= #2? What's the least constrained bullshit there?
+        // If you merge_into(#1, #2), then you lose generality.
+        // But, what if theres:
+        //  <= #1 <= #12
+        // Bool, #1 <= #12 <= Bool
+        // Weird case...
         if (not did_constrain) {
           if (bounds.lower.size() == 1) {
             merge_requests.push_back({bounds.middle, bounds.lower[0]});
