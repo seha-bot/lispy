@@ -21,7 +21,6 @@ import entity;
 import expr;
 import formatter;
 import id;
-import resolved;
 import tag;
 import todo;
 import type;

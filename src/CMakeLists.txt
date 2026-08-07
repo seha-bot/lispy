@@ -10,12 +10,10 @@ target_sources(lispy_lib
       common/expr.cppm
       common/formatter.cppm
       common/id.cppm
-      common/resolved.cppm
       common/tag.cppm
       common/todo.cppm
       common/type.cppm
       common/type_storage.cppm
-      parser/context.cppm
       parser/entity_storage.cppm
       parser/parser.cppm
       parser/parsy.cppm
