@@ -36,7 +36,7 @@ std::string type_name(TypeContext ctx, id::TypeId t) {
     std::string operator()(type::Arrow const &b) {
       return "(" + type_name(ctx, b.from_id) + ") -> " + type_name(ctx, b.to_id);
     }
-    std::string operator()(type::ForAll const &c) { return "\\." + type_name(ctx, c.type_id); }
+    std::string operator()(type::ForAll const &c) { return "Π." + type_name(ctx, c.type_id); }
     std::string operator()(type::DeBruijnIndex const &d) { return std::to_string(d.value); }
     std::string operator()(type::Variant const &v) {
       if (v.elements.empty()) {
@@ -59,7 +59,13 @@ std::string type_name(TypeContext ctx, id::TypeId t) {
       }
       return str + " }";
     }
-    std::string operator()(type::Application const &) { todo(); }
+    std::string operator()(type::Application const &app) {
+      auto str = "(" + ctx.forms[app.definition_id.value].name;
+      for (auto &id : app.argument_ids) {
+        str += " " + type_name(ctx, id);
+      }
+      return str + ")";
+    }
     std::string operator()(type::Variable const &) {
       return "#" + std::to_string(ctx.ts.m_rep.representative(t).value);
     }

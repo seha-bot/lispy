@@ -52,7 +52,7 @@ struct SubtypeOfRule {
         todo();
       }
     } else if constexpr (std::same_as<A, type::ForAll> and std::same_as<B, type::Arrow>) {
-      constraints.push_back(SubtypeOf{ts.instantiate(a.type_id), b_id});
+      constraints.push_back(SubtypeOf{ts.instantiate(a.type_id, ts.make_variable()), b_id});
     } else if constexpr (std::same_as<A, type::Variant> and std::same_as<B, type::Variant>) {
       for (auto &e1 : a.elements) {
         auto it = std::ranges::find(b.elements, e1.tag_id, &type::Element::tag_id);
@@ -74,8 +74,23 @@ struct SubtypeOfRule {
       if (a.definition_id != b.definition_id) {
         todo();
       }
+    } else if constexpr (std::same_as<A, type::Application> and
+                         std::same_as<B, type::Application>) {
+      if (a.definition_id != b.definition_id) {
+        todo();
+      }
+      for (std::size_t i = 0; i < a.argument_ids.size(); ++i) {
+        constraints.push_back(SubtypeOf{a.argument_ids[i], b.argument_ids[i]});
+      }
     } else if constexpr (std::same_as<B, type::NamedTypeReference>) {
       constraints.push_back(SubtypeOf{a_id, forms[b.definition_id.value].type});
+    } else if constexpr (std::same_as<B, type::Application>) {
+      // TODO: Slow algorithms are SLOW and STUPID.
+      auto type_id = forms[b.definition_id.value].type;
+      for (auto &arg_id : b.argument_ids) {
+        type_id = ts.instantiate(type_id, arg_id);
+      }
+      constraints.push_back(SubtypeOf{a_id, type_id});
     } else {
       // static_assert(false);
       todo();

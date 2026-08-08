@@ -2,12 +2,14 @@ module;
 
 #include <string>
 #include <variant>
+#include <vector>
 
 export module shallow_ast;
 
 import raw_ast;
 
 // Shallow entites are partially-compiled module entities.
+// TODO: Rename to shallow_entity.
 export namespace shallow_ast {
 
 struct ShallowValueDefinition {
@@ -23,6 +25,7 @@ struct ShallowMergedValueDefinition {
 
 struct ShallowTypeFormDefinition {
   std::string name;
+  std::vector<raw_ast::Expr> raw_type_arguments;
   raw_ast::Expr raw_type;
 };
 

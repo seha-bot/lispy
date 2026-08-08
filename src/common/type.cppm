@@ -42,8 +42,8 @@ struct Struct {
 };
 
 struct Application {
-  id::TypeId function_id;
-  id::TypeId argument_id;
+  id::FormId definition_id;
+  std::vector<id::TypeId> argument_ids;
 };
 
 // Each object represents a unique variable.

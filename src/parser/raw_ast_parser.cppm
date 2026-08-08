@@ -6,6 +6,7 @@ module;
 #include <cstddef>
 #include <expected>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <span>
@@ -49,7 +50,7 @@ struct Context {
   std::size_t type_binding_relative_index(std::size_t type_binding_absolute_index) const {
     return m_type_binding_count - 1 - type_binding_absolute_index;
   }
-  std::size_t push_type_binding() { return m_type_binding_count++; }
+  scope::TypeBinding push_type_binding() { return scope::TypeBinding{m_type_binding_count++}; }
 
   storage::TypeStorage &ts;
   entity_storage::EntityStorage &es;
@@ -179,6 +180,9 @@ struct TypeLookupVisitor {
     };
   }
   type::Type operator()(scope::TypeFormDefinition type_form_definition) {
+    if (type_form_definition.arity != 0) {
+      todo();
+    }
     return type::NamedTypeReference{type_form_definition.id};
   }
   type::Type operator()(auto const &) { todo(); }
@@ -205,6 +209,17 @@ Parser<id::TypeId> type_parser(Context ctx) noexcept {
     return std::visit(TypeLookupVisitor{ctx}, *scope_entry);
   };
 
+  auto lookup_hkt = [ctx](ExprView name_view) -> scope::TypeFormDefinition {
+    auto scope_entry = ctx.scope().lookup(name_view.head_as_atom().name);
+    if (not scope_entry) {
+      todo();
+    }
+    if (auto *hellooooo = std::get_if<scope::TypeFormDefinition>(&*scope_entry)) {
+      return *hellooooo;
+    }
+    todo();
+  };
+
   auto arrow_parser = seq(to<type::Arrow>, rec_type_parser(), rec_type_parser());
 
   auto forall_parser = [ctx] -> Parser<type::ForAll> {
@@ -212,7 +227,7 @@ Parser<id::TypeId> type_parser(Context ctx) noexcept {
     auto to_binding = [ctx](ExprView name_view) {
       auto &atom = name_view.head_as_atom();
       auto new_ctx = ctx;
-      scope::TypeBinding type_binding{new_ctx.push_type_binding()};
+      auto type_binding = new_ctx.push_type_binding();
       return new_ctx.with_names({{atom.name, type_binding}});
     };
     auto binding_parser = atom("a type binding name") | to_binding;
@@ -245,7 +260,15 @@ Parser<id::TypeId> type_parser(Context ctx) noexcept {
           atom_exact("forall") > cut(std::move(forall_parser)) | store,
           atom_exact("variant") > cut(std::move(variant_parser)) | store,
           atom_exact("struct") > cut(std::move(struct_parser)) | store,
-          // atom_exact("tt-lambda") > std::move(tt_parser),
+          seq(
+              [](scope::TypeFormDefinition fun, std::vector<id::TypeId> arguments) {
+                if (fun.arity != arguments.size()) {
+                  todo();
+                }
+                return type::Application{fun.id, std::move(arguments)};
+              },
+              defined_name() | lookup_hkt, many(rec_type_parser())) |
+              store,
       })),
   });
 }
@@ -320,7 +343,7 @@ Parser<expr::Expr> special_parser(Context const &ctx) noexcept {
     auto to_binding = [ctx](ExprView name_view) {
       auto &atom = name_view.head_as_atom();
       auto new_ctx = ctx;
-      scope::TypeBinding type_binding{new_ctx.push_type_binding()};
+      auto type_binding = new_ctx.push_type_binding();
       return new_ctx.with_names({{atom.name, type_binding}});
     };
 
@@ -407,34 +430,51 @@ Parser<expr::Expr> expr_parser(Context ctx) noexcept {
   });
 }
 
-template <typename T> Parser<shallow_ast::ShallowEntity> name_and_body_parser() noexcept {
-  auto transform = [](ExprView name_view, ExprView body) -> shallow_ast::ShallowEntity {
-    return T(std::move(name_view.head_as_atom().name), std::move(body.head()));
-  };
-
-  auto name = [] {
-    return atom_where(parsy::MeaningfulPredicate{
-        .meaning = "a name",
-        .fn = [](auto &) { return true; },
-    });
-  };
-
-  auto body = [] {
-    return satisfies<ExprView>(parsy::MeaningfulPredicate{
-        .meaning = "a body",
-        .fn = [](auto &) { return true; },
-    });
-  };
-
-  return seq(transform, name(), body());
-}
-
 Parser<shallow_ast::ShallowEntity> shallow_entity_parser() noexcept {
+  auto name = [] {
+    return cut( //
+        atom_where(parsy::MeaningfulPredicate{
+            .meaning = "a name",
+            .fn = [](auto &) { return true; },
+        }) |
+        [](ExprView view) { return std::move(view.head_as_atom().name); });
+  };
+
+  auto expr = [] {
+    return cut( //
+        satisfies<ExprView>(parsy::MeaningfulPredicate{
+            .meaning = "idk",
+            .fn = [](auto &) { return true; },
+        }) |
+        [](ExprView view) { return std::move(view.head()); });
+  };
+
+  auto name_and_maybe_args = [=] {
+    auto wrap = [](auto a, auto b) { return std::make_pair(std::move(a), std::move(b)); };
+
+    // The order matters here because name() cuts.
+    return any(std::array{
+        list(seq(wrap, name(), many(expr()))),
+        seq(wrap, name(), pure(std::vector<raw_ast::Expr>{})),
+    });
+  };
+
+  auto to_form = [](std::pair<std::string, std::vector<raw_ast::Expr>> a, raw_ast::Expr b) {
+    return shallow_ast::ShallowTypeFormDefinition{
+        std::move(a.first),
+        std::move(a.second),
+        std::move(b),
+    };
+  };
+
+  auto to_entity = to<shallow_ast::ShallowEntity>;
+
   return list(any(std::array{
-      atom_exact("dec") > name_and_body_parser<shallow_ast::ShallowValueDeclaration>(),
-      atom_exact("def") > cut(name_and_body_parser<shallow_ast::ShallowValueDefinition>()),
-      atom_exact("form") > name_and_body_parser<shallow_ast::ShallowTypeFormDefinition>(),
-      atom_exact("module") > name_and_body_parser<shallow_ast::ShallowModuleDefinition>(),
+      atom_exact("dec") > seq(to<shallow_ast::ShallowValueDeclaration>, name(), expr()) | to_entity,
+      atom_exact("def") > seq(to<shallow_ast::ShallowValueDefinition>, name(), expr()) | to_entity,
+      atom_exact("form") > seq(to_form, name_and_maybe_args(), expr()) | to_entity,
+      atom_exact("module") > seq(to<shallow_ast::ShallowModuleDefinition>, name(), expr()) |
+          to_entity,
   }));
 }
 
@@ -500,11 +540,29 @@ lower_entity(Context const &ctx,
 
 std::expected<entity::TypeFormDefinition, parsy::ParseError<ExprView>>
 lower_entity(Context ctx, shallow_ast::ShallowTypeFormDefinition shallow_type_form) {
-  auto type = parse(raw::type_parser(std::move(ctx)), std::move(shallow_type_form.raw_type));
+  std::unordered_map<std::string, scope::Entry> names;
+  for (auto &x : shallow_type_form.raw_type_arguments) {
+    auto *atom = std::get_if<raw_ast::Atom>(&x);
+    if (not atom) {
+      todo();
+    }
+
+    auto [_, did_insert] = names.insert({atom->name, ctx.push_type_binding()});
+    if (not did_insert) {
+      todo();
+    }
+  }
+  auto new_ctx = ctx.with_names(std::move(names));
+
+  auto type = parse(raw::type_parser(std::move(new_ctx)), std::move(shallow_type_form.raw_type));
   if (not type) {
+    std::cerr << "TEMP: ERROR: " << type.error() << '\n';
     todo();
   }
-  return entity::TypeFormDefinition{std::move(shallow_type_form.name), *std::move(type)};
+  return entity::TypeFormDefinition{
+      std::move(shallow_type_form.name),
+      *std::move(type),
+  };
 }
 
 std::expected<entity::ModuleDefinition, parsy::ParseError<ExprView>>
@@ -553,10 +611,10 @@ lower_entity(Context ctx, shallow_ast::ShallowModuleDefinition shallow_module) {
           entity_ids.insert({std::move(name), {i, id}});
           return scope::MergedValueDefinition{id};
         }
-        scope::Entry operator()(shallow_ast::ShallowTypeFormDefinition const &) {
+        scope::Entry operator()(shallow_ast::ShallowTypeFormDefinition const &s) {
           auto const id = es.reserve_form();
           form_ids.insert({std::move(name), {i, id}});
-          return scope::TypeFormDefinition{id};
+          return scope::TypeFormDefinition{id, s.raw_type_arguments.size()};
         }
         scope::Entry operator()(shallow_ast::ShallowModuleDefinition const &) { todo(); }
 

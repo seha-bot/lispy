@@ -11,8 +11,17 @@ auto parse(std::string_view expr) {
   return *std::move(ast);
 }
 
-TEST_CASE("Error on unconstrained types.", "[typechecker]") {
+TEST_CASE("Forbid uninferred types.", "[typechecker]") {
   auto ast = parse("(def id (lambda x x))");
+  auto result = analyser::typecheck(*ast.ts, ast.tags, ast.forms, std::move(ast.entities));
+  REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("Forbid type constructors where types are expected.", "[typechecker]") {
+  auto ast = parse(R"(
+    (form (Id A) A)
+    (dec f Id)
+  )");
   auto result = analyser::typecheck(*ast.ts, ast.tags, ast.forms, std::move(ast.entities));
   REQUIRE_FALSE(result.has_value());
 }

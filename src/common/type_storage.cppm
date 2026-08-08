@@ -102,42 +102,64 @@ struct TypeStorage {
 
   void merge_into(id::VariableId a_id, id::TypeId b_id) { m_rep.merge_into(a_id, b_id); }
 
-  [[nodiscard]] id::TypeId instantiate(id::TypeId type_id) {
-    return instantiate_impl(type_id, make_variable(), 0);
+  /// Replaces all DeBruijn indices pointing to the current root of type_id with subst_id.
+  [[nodiscard]] id::TypeId instantiate(id::TypeId type_id, id::TypeId subst_id) {
+    return instantiate_impl(type_id, subst_id, 0);
   }
 
 private:
-  id::TypeId instantiate_impl(id::TypeId type_id, id::VariableId variable_id, std::size_t depth) {
+  id::TypeId instantiate_impl(id::TypeId type_id, id::TypeId subst_id, std::size_t depth) {
     struct Visitor {
       id::TypeId operator()(type::Arrow const &arr) {
         return ts.store(type::Arrow{
-            ts.instantiate_impl(arr.from_id, variable_id, depth),
-            ts.instantiate_impl(arr.to_id, variable_id, depth),
+            ts.instantiate_impl(arr.from_id, subst_id, depth),
+            ts.instantiate_impl(arr.to_id, subst_id, depth),
         });
       }
       id::TypeId operator()(type::ForAll const &forall) {
-        return ts.instantiate_impl(forall.type_id, variable_id, depth + 1);
+        return ts.instantiate_impl(forall.type_id, subst_id, depth + 1);
       }
       id::TypeId operator()(type::DeBruijnIndex const &index) {
-        return index.value == depth ? variable_id : type_id;
+        return index.value == depth ? subst_id : type_id;
       }
-      id::TypeId operator()(type::Variant const &) { todo(); }
-      id::TypeId operator()(type::Struct const &) { todo(); }
+      id::TypeId operator()(type::Variant const &v) {
+        std::vector<type::Element> elements;
+        elements.reserve(v.elements.size());
+        for (auto &e : v.elements) {
+          elements.push_back({
+              .tag_id = e.tag_id,
+              .type_id = ts.instantiate_impl(e.type_id, subst_id, depth),
+          });
+        }
+        return ts.store(type::Variant{elements});
+      }
+      id::TypeId operator()(type::Struct const &s) {
+        std::vector<type::Element> elements;
+        elements.reserve(s.elements.size());
+        for (auto &e : s.elements) {
+          elements.push_back({
+              .tag_id = e.tag_id,
+              .type_id = ts.instantiate_impl(e.type_id, subst_id, depth),
+          });
+        }
+        return ts.store(type::Struct{elements});
+      }
       id::TypeId operator()(type::Application const &app) {
-        return ts.store(type::Application{
-            ts.instantiate_impl(app.function_id, variable_id, depth),
-            ts.instantiate_impl(app.argument_id, variable_id, depth),
-        });
+        std::vector<id::TypeId> instantiated_argument_ids;
+        for (auto &id : app.argument_ids) {
+          instantiated_argument_ids.push_back(ts.instantiate_impl(id, subst_id, depth));
+        }
+        return ts.store(type::Application{app.definition_id, std::move(instantiated_argument_ids)});
       }
       id::TypeId operator()(type::Variable const &) { return type_id; }
       id::TypeId operator()(type::NamedTypeReference const &) { return type_id; }
 
       TypeStorage &ts;
       id::TypeId type_id;
-      id::VariableId variable_id;
+      id::TypeId subst_id;
       std::size_t depth;
     };
-    return std::visit(Visitor{*this, type_id, variable_id, depth}, read(type_id));
+    return std::visit(Visitor{*this, type_id, subst_id, depth}, read(type_id));
   }
 
   struct EqualVisitor {
@@ -163,7 +185,10 @@ private:
           });
     }
     bool operator()(type::Application const &a, type::Application const &b) {
-      return ts.equal(a.function_id, b.function_id) and ts.equal(a.argument_id, b.argument_id);
+      return a.definition_id == b.definition_id and
+             std::ranges::equal(
+                 a.argument_ids, b.argument_ids,
+                 [&](id::TypeId a_id, id::TypeId b_id) { return ts.equal(a_id, b_id); });
     }
     bool operator()(type::NamedTypeReference const &a, type::NamedTypeReference const &b) {
       return a.definition_id == b.definition_id;

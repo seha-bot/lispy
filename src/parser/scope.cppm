@@ -21,6 +21,7 @@ struct TypeBinding {
 };
 struct TypeFormDefinition {
   id::FormId id;
+  std::size_t arity;
 };
 struct Binding {
   entity::Binding *binding_ptr;
