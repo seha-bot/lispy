@@ -20,14 +20,33 @@ struct Application {
   std::unique_ptr<Expr> argument;
 };
 
+struct Pattern;
+
+struct TagPattern {
+  id::TagId tag_id;
+};
+
+struct TaggedValuePattern {
+  id::TagId tag_id;
+  std::unique_ptr<Pattern> rest;
+};
+
+struct PackPattern {
+  std::vector<TaggedValuePattern> tagged_values;
+};
+
+struct BindingPattern {
+  std::unique_ptr<entity::Binding> binding;
+};
+
+using PatternBase = std::variant<TagPattern, TaggedValuePattern, PackPattern, BindingPattern>;
+struct Pattern : PatternBase {
+  using PatternBase::PatternBase;
+};
+
+struct Choice;
+
 struct Case {
-  struct Pattern {
-    id::TagId tag;
-    std::vector<entity::Binding> bindings;
-  };
-
-  struct Choice;
-
   std::unique_ptr<Expr> scrutinee;
   std::vector<Choice> choices;
 };
@@ -75,7 +94,7 @@ struct Expr : ExprBase {
   using ExprBase::ExprBase;
 };
 
-struct Case::Choice {
+struct Choice {
   Pattern pattern;
   Expr arm;
 };

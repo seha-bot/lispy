@@ -18,15 +18,48 @@ import type_storage;
 
 export namespace formatter {
 
-struct TypeContext {
+struct Context {
   storage::TypeStorage const &ts;
+  std::vector<entity::ModuleEntity<expr::Expr>> const &entities;
   std::vector<entity::TypeFormDefinition> const &forms;
   std::vector<tag::Tag> const &tags;
 };
 
-struct Context {
+} // namespace formatter
+
+namespace {
+
+void format_pattern(std::ostream &os, formatter::Context ctx, expr::Pattern const &pat) {
+  struct Visitor {
+    void operator()(expr::TagPattern const &t) { os << ctx.tags[t.tag_id.value].name; }
+    void operator()(expr::TaggedValuePattern const &t) {
+      os << '(' << ctx.tags[t.tag_id.value].name << ' ';
+      format_pattern(os, ctx, *t.rest);
+      os << ')';
+    }
+    void operator()(expr::PackPattern const &p) {
+      os << "(pack";
+      for (auto &t : p.tagged_values) {
+        os << " (" << ctx.tags[t.tag_id.value].name << ' ';
+        format_pattern(os, ctx, *t.rest);
+        os << ')';
+      }
+      os << ')';
+    }
+    void operator()(expr::BindingPattern const &b) { os << b.binding->name; }
+
+    std::ostream &os;
+    formatter::Context ctx;
+  };
+  std::visit(Visitor{os, ctx}, pat);
+}
+
+} // namespace
+
+export namespace formatter {
+
+struct TypeContext {
   storage::TypeStorage const &ts;
-  std::vector<entity::ModuleEntity<expr::Expr>> const &entities;
   std::vector<entity::TypeFormDefinition> const &forms;
   std::vector<tag::Tag> const &tags;
 };
@@ -88,7 +121,17 @@ void format_expr(std::ostream &os, Context ctx, std::size_t depth, expr::Expr co
       format_expr(os, ctx, 0, *app.argument);
       os << ')';
     }
-    void operator()(expr::Case const &) { todo(); }
+    void operator()(expr::Case const &c) {
+      os << "(case ";
+      format_expr(os, ctx, 0, *c.scrutinee);
+      for (auto &ch : c.choices) {
+        os << ' ';
+        format_pattern(os, ctx, ch.pattern);
+        os << ' ';
+        format_expr(os, ctx, 0, ch.arm);
+      }
+      os << ')';
+    }
     void operator()(expr::Variant const &v) {
       if (v.value) {
         os << '(' << ctx.tags[v.tag_id.value].name << ' ';
@@ -99,13 +142,9 @@ void format_expr(std::ostream &os, Context ctx, std::size_t depth, expr::Expr co
       }
     }
     void operator()(expr::Pack const &p) {
-      os << "(pack ";
-      for (std::size_t i = 0; i < p.tagged_values.size(); ++i) {
-        if (i != 0) {
-          os << ' ';
-        }
-        auto &val = p.tagged_values[i];
-        os << '(' << ctx.tags[val.tag_id.value].name << ' ';
+      os << "(pack";
+      for (auto &val : p.tagged_values) {
+        os << " (" << ctx.tags[val.tag_id.value].name << ' ';
         format_expr(os, ctx, 0, *val.value);
         os << ')';
       }

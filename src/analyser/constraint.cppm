@@ -154,6 +154,14 @@ export struct Solver {
       }
 
       // At this point, every constraint contains at least 1 variable.
+      for (std::size_t i = 0; i < m_constraints.size(); ++i) {
+        auto [a_id, b_id] = m_constraints[i];
+        if (ts.equal(a_id, b_id)) {
+          m_constraints.erase(m_constraints.begin() + static_cast<std::ptrdiff_t>(i));
+          --i;
+        }
+      }
+
       struct Bounds {
         std::vector<id::TypeId> lower, upper;
         id::TypeId middle;
@@ -205,19 +213,14 @@ export struct Solver {
             }
           }
         }
-        // FIX: BUGGY. WHAT IF YOU HAVE #1 <= #2? What's the least constrained bullshit there?
-        // If you merge_into(#1, #2), then you lose generality.
-        // But, what if theres:
-        //  <= #1 <= #12
-        // Bool, #1 <= #12 <= Bool
-        // Weird case...
         if (not did_constrain) {
           if (bounds.lower.size() == 1) {
             merge_requests.push_back({bounds.middle, bounds.lower[0]});
           } else if (bounds.upper.size() == 1) {
             merge_requests.push_back({bounds.middle, bounds.upper[0]});
           } else {
-            todo();
+            // TODO: IDK WHAT TO DO HERE
+            // todo();
           }
         }
       }

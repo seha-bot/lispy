@@ -9,6 +9,7 @@ module;
 export module typed_expr;
 
 import entity;
+import expr;
 import id;
 
 export namespace typed_expr {
@@ -24,14 +25,9 @@ struct Application : Typed {
   std::unique_ptr<Expr> argument;
 };
 
+struct Choice;
+
 struct Case : Typed {
-  struct Pattern {
-    id::TagId tag;
-    std::vector<entity::Binding> bindings;
-  };
-
-  struct Choice;
-
   std::unique_ptr<Expr> scrutinee;
   std::vector<Choice> choices;
 };
@@ -87,8 +83,8 @@ struct Expr : ExprBase {
   }
 };
 
-struct Case::Choice {
-  Pattern pattern;
+struct Choice {
+  expr::Pattern pattern;
   Expr arm;
 };
 

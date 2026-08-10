@@ -160,6 +160,7 @@ template <typename A> Parser<A> list(Parser<A> parser) {
       if (not result) {
         return std::move(result.error());
       }
+
       return {std::move(result.value()), tokens};
     }};
   };
@@ -273,34 +274,86 @@ Parser<id::TypeId> type_parser(Context ctx) noexcept {
   });
 }
 
-Parser<expr::Expr> expr_parser(Context ctx) noexcept;
-
-Parser<expr::Case::Choice> case_choice_parser(Context const &ctx) noexcept {
-  auto pattern_bindings = [] {
-    return many(atom("a pattern binding") < peek(atom("a pattern binding")));
+Parser<std::pair<std::unordered_map<std::string, scope::Entry>, expr::Pattern>>
+pattern_parser(Context const &ctx) noexcept {
+  auto rec_pattern_parser = [](Context const &ctx) {
+    return parsy::rec<ExprView>([ctx] { return pattern_parser(ctx); });
   };
 
-  return list(tag_parser(ctx) >> [=](id::TagId tag_id) {
-    return pattern_bindings() >> [=](std::vector<ExprView> binding_name_views) {
-      std::vector<entity::Binding> bindings;
-      bindings.reserve(binding_name_views.size());
-      for (auto &binding_name_view : binding_name_views) {
-        auto binding_name = std::move(binding_name_view.head_as_atom().name);
-        bindings.push_back(entity::Binding{std::move(binding_name), ctx.ts.make_variable()});
-      }
+  auto pack_parser = [=] {
+    auto wrap = [](auto x, auto y) { return std::make_pair(std::move(x), std::move(y)); };
 
+    auto finish =
+        [](std::vector<std::pair<
+               id::TagId, std::pair<std::unordered_map<std::string, scope::Entry>, expr::Pattern>>>
+               v) -> std::pair<std::unordered_map<std::string, scope::Entry>, expr::Pattern> {
       std::unordered_map<std::string, scope::Entry> names;
-      names.reserve(binding_name_views.size());
-      for (auto &binding : bindings) {
-        names.insert({binding.name, scope::Binding{&binding}});
+      std::vector<expr::TaggedValuePattern> bobs;
+      for (auto &x : v) {
+        for (auto &y : x.second.first) {
+          bool ok = names.insert({y.first, y.second}).second;
+          if (not ok) {
+            todo();
+          }
+        }
+        bobs.push_back({x.first, alloc(std::move(x.second.second))});
       }
-      auto new_ctx = ctx.with_names(std::move(names));
 
-      return seq(to<expr::Case::Choice>,
-                 pure_once(expr::Case::Pattern(tag_id, std::move(bindings))),
-                 expr_parser(std::move(new_ctx)));
+      return std::make_pair(std::move(names), expr::Pattern{expr::PackPattern{std::move(bobs)}});
     };
+
+    return many(list(seq(wrap, tag_parser(ctx), cut(rec_pattern_parser(ctx))))) | finish;
+  }();
+
+  return any(std::array{
+      tag_parser(ctx) |
+          [=](id::TagId tag_id) {
+            return std::make_pair(std::unordered_map<std::string, scope::Entry>{},
+                                  expr::Pattern{expr::TagPattern{tag_id}});
+          },
+      atom("a pattern binding") |
+          [=](ExprView atom) {
+            auto binding = alloc(entity::Binding{
+                std::move(atom.head_as_atom().name),
+                ctx.ts.make_variable(),
+            });
+
+            std::unordered_map<std::string, scope::Entry> names;
+            names.insert({binding->name, scope::Binding{binding.get()}});
+
+            return std::make_pair(                                      //
+                std::move(names),                                       //
+                expr::Pattern{expr::BindingPattern{std::move(binding)}} //
+            );
+          },
+      list(any(std::array{
+          atom_exact("pack") > cut(std::move(pack_parser)),
+          tag_parser(ctx) >>
+              [=](id::TagId tag_id) {
+                return cut(pattern_parser(ctx)) | [tag_id](auto r) {
+                  auto [names, rest] = std::move(r);
+                  return std::make_pair( //
+                      std::move(names),  //
+                      expr::Pattern{expr::TaggedValuePattern{
+                          tag_id,
+                          alloc(std::move(rest)),
+                      }});
+                };
+              },
+      })),
   });
+}
+
+Parser<expr::Expr> expr_parser(Context ctx) noexcept;
+
+Parser<expr::Choice> case_choice_parser(Context const &ctx) noexcept {
+  return pattern_parser(ctx) >>
+         [ctx](std::pair<std::unordered_map<std::string, scope::Entry>, expr::Pattern> r) {
+           auto [names, pattern] = std::move(r);
+           auto new_ctx = ctx.with_names(std::move(names));
+           return seq(to<expr::Choice>, pure_once(std::move(pattern)),
+                      expr_parser(std::move(new_ctx)));
+         };
 }
 
 Parser<expr::Expr> special_parser(Context const &ctx) noexcept {
@@ -528,6 +581,7 @@ lower_entity(Context const &ctx,
 
   auto expr = parse(raw::expr_parser(ctx), std::move(shallow_merged_value_definition.raw_value));
   if (not expr) {
+    std::cout << expr.error() << '\n';
     todo();
   }
 

@@ -158,7 +158,7 @@ std::expected<A, ParseError<T>> parse(Parsy<T, A> const &parser, T tokens) noexc
   if (not result.remaining().empty()) {
     return std::unexpected(ParseError<T>{
         .error = errors::Unexpected<T>{.pos = result.remaining().pos(), .expected = "nothing"},
-        .is_recoverable = true,
+        .is_recoverable = false,
     });
   }
   return std::move(result.value());

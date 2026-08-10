@@ -27,7 +27,7 @@ private:
 public:
   id::TypeId representative(id::TypeId a) { return representative_iterator(a)->first; }
 
-  // Merges `a` into `b`.
+  /// Merges `a` into `b`.
   void merge_into(id::TypeId a, id::TypeId b) {
     representative_iterator(a)->second = representative(b);
   }
@@ -100,6 +100,7 @@ struct TypeStorage {
     return type_equal(read_exact(a_rep_id), read_exact(b_rep_id));
   }
 
+  // If b_id represents a variable, then merge_into is commutative.
   void merge_into(id::VariableId a_id, id::TypeId b_id) { m_rep.merge_into(a_id, b_id); }
 
   /// Replaces all DeBruijn indices pointing to the current root of type_id with subst_id.
@@ -110,16 +111,16 @@ struct TypeStorage {
 private:
   id::TypeId instantiate_impl(id::TypeId type_id, id::TypeId subst_id, std::size_t depth) {
     struct Visitor {
-      id::TypeId operator()(type::Arrow const &arr) {
+      id::TypeId operator()(type::Arrow arr) {
         return ts.store(type::Arrow{
             ts.instantiate_impl(arr.from_id, subst_id, depth),
             ts.instantiate_impl(arr.to_id, subst_id, depth),
         });
       }
-      id::TypeId operator()(type::ForAll const &forall) {
-        return ts.instantiate_impl(forall.type_id, subst_id, depth + 1);
+      id::TypeId operator()(type::ForAll forall) {
+        return ts.store(type::ForAll{ts.instantiate_impl(forall.type_id, subst_id, depth + 1)});
       }
-      id::TypeId operator()(type::DeBruijnIndex const &index) {
+      id::TypeId operator()(type::DeBruijnIndex index) {
         return index.value == depth ? subst_id : type_id;
       }
       id::TypeId operator()(type::Variant const &v) {

@@ -44,10 +44,10 @@ int main(int argc, char *argv[]) {
   std::cout << "STRUCTURED AST END.\n";
 
   auto type_env = analyser::typecheck(*ast->ts, ast->tags, ast->forms, std::move(ast->entities));
-  if (not type_env) {
-    std::cerr << type_env.error() << '\n';
-    return EXIT_FAILURE;
-  }
+  // if (not type_env) {
+  //   std::cerr << type_env.error() << '\n';
+  //   return EXIT_FAILURE;
+  // }
 
   // emitter::emit(*ast, *type_env, std::cout);
 }
