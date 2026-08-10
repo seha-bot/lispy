@@ -56,3 +56,37 @@
 ;   (pack
 ;     (:a Bool)
 ;     (:b Bool)))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(form (List A)
+  (union
+    :nil
+    (:cons
+      (struct
+        (:head A)
+        (:tail (List A))))))
+
+(dec prepend (forall A (to A (to (List A) (List A)))))
+(def prepend
+  (tv-lambda _
+    (lambda x
+      (lambda xs
+        (:cons
+          (pack
+            (:head x)
+            (:tail xs)))))))
+
+(dec map (forall A (forall B (to (to A B) (to (List A) (List B))))))
+(def map
+  (tv-lambda _
+    (tv-lambda _
+      (lambda f
+        (lambda xs
+          (case xs
+            :nil
+            :nil
+
+            (:cons
+              (pack
+                (:head y)
+                (:tail ys)))
+            (prepend (f y) (map f ys))))))))
