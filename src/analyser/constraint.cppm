@@ -53,7 +53,7 @@ struct SubtypeOfRule {
       }
     } else if constexpr (std::same_as<A, type::ForAll> and std::same_as<B, type::Arrow>) {
       constraints.push_back(SubtypeOf{ts.instantiate(a.type_id, ts.make_variable()), b_id});
-    } else if constexpr (std::same_as<A, type::Variant> and std::same_as<B, type::Variant>) {
+    } else if constexpr (std::same_as<A, type::Union> and std::same_as<B, type::Union>) {
       for (auto &e1 : a.elements) {
         auto it = std::ranges::find(b.elements, e1.tag_id, &type::Element::tag_id);
         if (it == b.elements.end()) {

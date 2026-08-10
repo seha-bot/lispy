@@ -29,15 +29,11 @@ struct Element {
   id::TypeId type_id;
 };
 
-struct Variant {
-  // FIX: DO NOT RELY ON THIS PLEASE!
-  // It is safe to assume that this is sorted by tag_id.
+struct Union {
   std::vector<Element> elements;
 };
 
 struct Struct {
-  // FIX: DO NOT RELY ON THIS PLEASE!
-  // It is safe to assume that this is sorted by tag_id.
   std::vector<Element> elements;
 };
 
@@ -53,7 +49,7 @@ struct NamedTypeReference {
   id::FormId definition_id;
 };
 
-using TypeBase = std::variant<Arrow, ForAll, DeBruijnIndex, Variant, Struct, Application, Variable,
+using TypeBase = std::variant<Arrow, ForAll, DeBruijnIndex, Union, Struct, Application, Variable,
                               NamedTypeReference>;
 struct Type : TypeBase {
   using TypeBase::TypeBase;

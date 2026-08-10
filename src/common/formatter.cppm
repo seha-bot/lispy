@@ -71,7 +71,7 @@ std::string type_name(TypeContext ctx, id::TypeId t) {
     }
     std::string operator()(type::ForAll const &c) { return "Π." + type_name(ctx, c.type_id); }
     std::string operator()(type::DeBruijnIndex const &d) { return std::to_string(d.value); }
-    std::string operator()(type::Variant const &v) {
+    std::string operator()(type::Union const &v) {
       if (v.elements.empty()) {
         return "[]";
       }
@@ -132,14 +132,10 @@ void format_expr(std::ostream &os, Context ctx, std::size_t depth, expr::Expr co
       }
       os << ')';
     }
-    void operator()(expr::Variant const &v) {
-      if (v.value) {
-        os << '(' << ctx.tags[v.tag_id.value].name << ' ';
-        format_expr(os, ctx, 0, **v.value);
-        os << ')';
-      } else {
-        os << ctx.tags[v.tag_id.value].name;
-      }
+    void operator()(expr::TaggedValue const &v) {
+      os << '(' << ctx.tags[v.tag_id.value].name << ' ';
+      format_expr(os, ctx, 0, *v.value);
+      os << ')';
     }
     void operator()(expr::Pack const &p) {
       os << "(pack";

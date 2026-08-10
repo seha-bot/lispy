@@ -140,30 +140,17 @@ typed_expr::Expr get_type(Context &ctx, expr::Expr expr) noexcept {
           std::move(choices),
       };
     }
-    typed_expr::Expr operator()(expr::Variant variant) {
-      if (variant.value) {
-        auto value = get_type(ctx, std::move(**variant.value));
-        auto const type_id = ctx.ts.store(type::Variant{std::vector{type::Element{
-            .tag_id = variant.tag_id,
-            .type_id = value.type_id(),
-        }}});
-        return typed_expr::Variant{
-            {type_id},
-            variant.tag_id,
-            std::make_unique<typed_expr::Expr>(std::move(value)),
-        };
-      } else {
-        auto const type_id = ctx.ts.store(type::Variant{std::vector{type::Element{
-            .tag_id = variant.tag_id,
-            .type_id = id::TypeId::unit_id,
-        }}});
-
-        return typed_expr::Variant{
-            {type_id},
-            variant.tag_id,
-            std::nullopt,
-        };
-      }
+    typed_expr::Expr operator()(expr::TaggedValue v) {
+      auto value = get_type(ctx, std::move(*v.value));
+      auto const type_id = ctx.ts.store(type::Union{std::vector{type::Element{
+          .tag_id = v.tag_id,
+          .type_id = value.type_id(),
+      }}});
+      return typed_expr::TaggedValue{
+          {type_id},
+          v.tag_id,
+          std::make_unique<typed_expr::Expr>(std::move(value)),
+      };
     }
     typed_expr::Expr operator()(expr::Pack pack) {
       std::vector<type::Element> elements;
@@ -181,7 +168,6 @@ typed_expr::Expr get_type(Context &ctx, expr::Expr expr) noexcept {
         });
       }
 
-      std::ranges::sort(elements, {}, [](auto &e) { return e.tag_id; });
       auto const type_id = ctx.ts.store(type::Struct{std::move(elements)});
       return typed_expr::Pack{{type_id}, std::move(tagged_values)};
     }

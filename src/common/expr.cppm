@@ -2,7 +2,6 @@ module;
 
 #include <functional>
 #include <memory>
-#include <optional>
 #include <variant>
 #include <vector>
 
@@ -51,12 +50,6 @@ struct Case {
   std::vector<Choice> choices;
 };
 
-struct Variant {
-  id::TagId tag_id;
-  std::optional<std::unique_ptr<Expr>> value;
-};
-
-// This looks a lot like Variant above. Hmmm...
 struct TaggedValue {
   id::TagId tag_id;
   std::unique_ptr<Expr> value;
@@ -88,8 +81,8 @@ struct BindingReference {
   std::reference_wrapper<entity::Binding const> binding;
 };
 
-using ExprBase = std::variant<Application, Case, Variant, Pack, Lambda, TVLambda, ValueReference,
-                              BindingReference>;
+using ExprBase = std::variant<Application, Case, TaggedValue, Pack, Lambda, TVLambda,
+                              ValueReference, BindingReference>;
 struct Expr : ExprBase {
   using ExprBase::ExprBase;
 };

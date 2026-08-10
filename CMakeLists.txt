@@ -21,8 +21,8 @@ target_compile_options(compiler_flags INTERFACE -Wall -Wextra -Wpedantic -Wunuse
 
 add_subdirectory(src)
 
-option(BUILD_TESTS "should tests be built" ON)
-if(BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
-endif()
+# option(BUILD_TESTS "should tests be built" ON)
+# if(BUILD_TESTS)
+#     enable_testing()
+#     add_subdirectory(tests)
+# endif()

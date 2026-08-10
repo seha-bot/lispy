@@ -235,20 +235,15 @@ Parser<id::TypeId> type_parser(Context ctx) noexcept {
     return std::move(binding_parser) >> type_parser | to<type::ForAll>;
   }();
 
-  auto variant_parser = [ctx, rec_type_parser] -> Parser<type::Variant> {
+  auto union_parser = [ctx, rec_type_parser] -> Parser<type::Union> {
     auto element_parser = any(std::array{
         seq(to<type::Element>, tag_parser(ctx), pure(id::TypeId::unit_id)),
         list(seq(to<type::Element>, tag_parser(ctx), rec_type_parser())),
     });
 
-    return many(std::move(element_parser)) | [](std::vector<type::Element> elements) {
-      std::ranges::sort(elements, {}, [](auto &e) { return e.tag_id; });
-      return elements;
-    } | to<type::Variant>;
+    return many(std::move(element_parser)) | to<type::Union>;
   }();
 
-  // FIX: Sort elements by tag_id. There is common functionality in variant_parser,
-  // so factor it out.
   auto struct_parser =
       many(list(seq(to<type::Element>, tag_parser(ctx), rec_type_parser()))) | to<type::Struct>;
 
@@ -259,7 +254,7 @@ Parser<id::TypeId> type_parser(Context ctx) noexcept {
       list(any(std::array{
           atom_exact("to") > cut(std::move(arrow_parser)) | store,
           atom_exact("forall") > cut(std::move(forall_parser)) | store,
-          atom_exact("variant") > cut(std::move(variant_parser)) | store,
+          atom_exact("union") > cut(std::move(union_parser)) | store,
           atom_exact("struct") > cut(std::move(struct_parser)) | store,
           seq(
               [](scope::TypeFormDefinition fun, std::vector<id::TypeId> arguments) {
@@ -473,10 +468,12 @@ Parser<expr::Expr> expr_parser(Context ctx) noexcept {
 
   return any(std::array{
       name_lookup(),
-      seq(to<expr::Variant>, tag_parser(ctx), pure(std::nullopt)) | to<expr::Expr>,
+      seq(to<expr::TaggedValue>, tag_parser(ctx),
+          pure_once(std::make_unique<expr::Expr>(expr::Pack{}))) |
+          to<expr::Expr>,
       list(cut(any(std::array{
           name_lookup() >> call_parser | to<expr::Expr>,
-          seq(to<expr::Variant>, tag_parser(ctx), rec_expr_parser() | alloc) | to<expr::Expr>,
+          seq(to<expr::TaggedValue>, tag_parser(ctx), rec_expr_parser() | alloc) | to<expr::Expr>,
           special_parser(ctx),
           list(cut(rec_expr_parser())) >> call_parser | to<expr::Expr>,
       }))),

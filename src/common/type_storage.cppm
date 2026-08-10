@@ -123,7 +123,7 @@ private:
       id::TypeId operator()(type::DeBruijnIndex index) {
         return index.value == depth ? subst_id : type_id;
       }
-      id::TypeId operator()(type::Variant const &v) {
+      id::TypeId operator()(type::Union const &v) {
         std::vector<type::Element> elements;
         elements.reserve(v.elements.size());
         for (auto &e : v.elements) {
@@ -132,7 +132,7 @@ private:
               .type_id = ts.instantiate_impl(e.type_id, subst_id, depth),
           });
         }
-        return ts.store(type::Variant{elements});
+        return ts.store(type::Union{elements});
       }
       id::TypeId operator()(type::Struct const &s) {
         std::vector<type::Element> elements;
@@ -173,11 +173,12 @@ private:
     bool operator()(type::DeBruijnIndex const &a, type::DeBruijnIndex const &b) {
       return a.value == b.value;
     }
-    bool operator()(type::Variant const &a, type::Variant const &b) {
-      return std::ranges::equal(
-          a.elements, b.elements, [&](type::Element const &e1, type::Element const &e2) {
-            return e1.tag_id == e2.tag_id and ts.equal(e1.type_id, e2.type_id);
-          });
+    bool operator()(type::Union const &a, type::Union const &b) {
+      return std::ranges::all_of(a.elements, [&](type::Element const &e1) {
+        return std::ranges::any_of(b.elements, [&](type::Element const &e2) {
+          return e1.tag_id == e2.tag_id and ts.equal(e1.type_id, e2.type_id);
+        });
+      });
     }
     bool operator()(type::Struct const &a, type::Struct const &b) {
       return std::ranges::equal(
@@ -199,7 +200,7 @@ private:
     bool operator()(type::Arrow const &, auto &) { return false; }
     bool operator()(type::ForAll const &, auto &) { return false; }
     bool operator()(type::DeBruijnIndex const &, auto &) { return false; }
-    bool operator()(type::Variant const &, auto &) { return false; }
+    bool operator()(type::Union const &, auto &) { return false; }
     bool operator()(type::Struct const &, auto &) { return false; }
     bool operator()(type::Application const &, auto &) { return false; }
     bool operator()(type::Variable const &, auto &) { return false; }
